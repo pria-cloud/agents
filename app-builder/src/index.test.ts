@@ -154,8 +154,8 @@ describe('handleAppComposeIntent', () => {
     const result = await handleAppComposeIntent(payload, 'trace6', 'jwt6');
     expect(result.generatedCode).toBeDefined();
     expect(result.generatedComponents).toBeDefined();
-    expect(result.generatedCode && result.generatedCode.Home).toContain('layout/components');
-    expect(result.generatedCode && result.generatedCode.ManagerDashboard).toContain('layout/components');
+    expect(result.generatedCode && result.generatedCode.Home).toContain('Use this best-practice layout');
+    expect(result.generatedCode && result.generatedCode.ManagerDashboard).toContain('Use this best-practice layout');
     expect(result.generatedComponents && result.generatedComponents.ExpenseForm).toContain('used in the following pages');
     expect(result.generatedComponents && result.generatedComponents.ExpenseList).toContain('used in the following pages');
   });

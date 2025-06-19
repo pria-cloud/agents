@@ -9,6 +9,7 @@ import pino from 'pino';
 import { trace, context } from '@opentelemetry/api';
 import { recordInferenceCost, recordIntentLatency, recordError } from './otelMetrics';
 import { fetchBestPracticeSpec } from './catalogueClient';
+import { layouts } from '../layouts';
 
 const logger = pino({
   name: 'app-builder',
@@ -117,6 +118,7 @@ export async function handleAppComposeIntent(intentPayload: any, trace_id?: stri
     // 3. Classify app and enforce best-practice catalogue
     let appType = 'custom';
     let bestPracticeTemplate: { sharedModels: string[]; sharedWorkflows: string[]; uiLayouts?: any } = { sharedModels: [], sharedWorkflows: [] };
+    let selectedLayout: any = null;
     await tracer.startActiveSpan('app.classification', async (span) => {
       if (intentPayload.domain) {
         try {
@@ -128,16 +130,26 @@ export async function handleAppComposeIntent(intentPayload: any, trace_id?: stri
             sharedWorkflows: (spec?.spec?.workflows || []).map((w: any) => w.name),
             uiLayouts: spec?.spec?.ui_layouts || [],
           };
-        } catch (err) {
-          // Fallback to stub for finance domain, else custom
-          if (intentPayload.domain === 'finance') {
-            appType = 'domain';
-            bestPracticeTemplate = { sharedModels: ['Expense', 'CurrencyRate'], sharedWorkflows: ['ExpenseApproval'] };
-          } else {
-            appType = 'custom';
-            bestPracticeTemplate = { sharedModels: [], sharedWorkflows: [] };
+          // Use layout from best-practice if present
+          if (bestPracticeTemplate.uiLayouts && bestPracticeTemplate.uiLayouts.length > 0) {
+            selectedLayout = bestPracticeTemplate.uiLayouts[0]; // Use the first layout as default
           }
-          logger.warn({ ...labels, event: 'catalogue.fallback', err: String(err) }, 'Falling back to stub best-practice template');
+        } catch (err) {
+          span.recordException(err as Error);
+          span.setStatus({ code: 2, message: 'Failed to fetch best-practice template' });
+        }
+      } else {
+        // Custom app: check for layout in intent, else ask user
+        if (intentPayload.layout && layouts[intentPayload.layout as keyof typeof layouts]) {
+          selectedLayout = layouts[intentPayload.layout as keyof typeof layouts];
+        } else if (!intentPayload.layout) {
+          // No layout specified, respond with clarifying question
+          const layoutOptions = Object.keys(layouts).map(key => ({ key, ...layouts[key as keyof typeof layouts] }));
+          return {
+            ok: false,
+            clarification: 'Which layout would you like for your app?',
+            options: layoutOptions
+          };
         }
       }
       span.setAttribute('app_type', appType);
@@ -225,23 +237,16 @@ export async function handleAppComposeIntent(intentPayload: any, trace_id?: stri
         const pageName = typeof page === 'string' ? page : page.name || 'UnnamedPage';
         // Check for a best-practice layout for this page
         let layoutPrompt = '';
-        if (bestPracticeTemplate.uiLayouts && Array.isArray(bestPracticeTemplate.uiLayouts)) {
+        if (appType === 'domain' && bestPracticeTemplate.uiLayouts && Array.isArray(bestPracticeTemplate.uiLayouts)) {
           const layoutEntry = bestPracticeTemplate.uiLayouts.find((l: any) => l.page === pageName);
           if (layoutEntry && layoutEntry.layout) {
-            layoutPrompt = `\nUse the following layout/components for the page: ${JSON.stringify(layoutEntry.layout)}.`;
+            layoutPrompt = `\nUse this best-practice layout: ${JSON.stringify(layoutEntry.layout)}.`;
           }
+        } else if (selectedLayout) {
+          layoutPrompt = `\nUse the following layout skeleton for this page: ${JSON.stringify(selectedLayout.structure)}.`;
         }
-        await tracer.startActiveSpan('llm.codegen.page', async (span) => {
-          // Ensure generated code uses workspace_id and RLS patterns
-          const code = await generateWithGemini({
-            prompt: `Generate a Next.js 15 page component in TypeScript for a page named "${pageName}". Use Tailwind CSS and shadcn/ui where appropriate. Ensure all data access is scoped by workspace_id and uses RLS.${layoutPrompt} Return only the code, no explanation.`,
-            system: 'You are an expert Next.js developer.'
-          });
-          generatedCode[pageName] = code;
-          span.setAttribute('model', 'gemini-2.5-flash');
-          span.setAttribute('page', pageName);
-          span.end();
-        });
+        const prompt = `Generate a Next.js page named "${pageName}".${layoutPrompt}\nPage spec: ${JSON.stringify(page)}`;
+        generatedCode[pageName] = await generateWithGemini({ prompt });
       }
     }
 
