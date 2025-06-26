@@ -69,7 +69,7 @@ async function main() {
         if (payload?.request_id) span.setAttribute('request_id', payload.request_id);
         let result;
         if (intent === 'app.compose') {
-          result = await handleAppComposeIntent(payload, trace_id, jwt, span);
+          result = await handleAppComposeIntent(req.body, trace_id, jwt, span);
           res.status(200).json({ ok: true, trace_id, ...result });
         } else if (intent === 'app.preview') {
           // This is a stub for a potential preview intent
@@ -174,18 +174,15 @@ export async function handleAppComposeIntent(
   jwt?: string,
   parentSpan?: Span
 ) {
+  logger.info({ event: 'handleAppComposeIntent.entry', requestBody }, 'Entering app compose handler');
   const tracer = trace.getTracer('app-builder');
   const { appSpec: incomingSpec, userInput, conversationId } = requestBody;
 
   const llmAdapter: LlmAdapter = {
     getJSONResponse: async (promptTemplate: string, input: any) => {
-      // In a real scenario, you might use a more sophisticated template engine.
-      // For now, we'll just pass the whole input object to the prompt context.
-      const prompt = promptTemplate.replace('{{INPUT}}', JSON.stringify(input, null, 2));
-
-      // This is a simplified adapter for demonstration.
-      // In a real scenario, this would call the actual LLM service.
-      const rawResponse = await generateWithGemini({ prompt });
+      // Construct the final prompt by combining the template and the specific input for this turn.
+      const finalPrompt = `${promptTemplate}\n\n## Current Request\n\nHere is the user's input and the current specification state:\n\n${JSON.stringify(input, null, 2)}`;
+      const rawResponse = await generateWithGemini({ prompt: finalPrompt });
       return JSON.parse(rawResponse);
     },
   };
@@ -440,4 +437,4 @@ export async function handleAppComposeIntent(
   }
 }
 
-main(); 
+// main(); // This call is redundant because startOtel().then(() => main()) already calls it. 
