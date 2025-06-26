@@ -72,6 +72,18 @@ The App-Builder agent transforms workspace specifications into production-ready 
 }
 ```
 
+## Example: Best-Practice Layout Prompt
+
+When generating a page for a domain app, the agent will prompt the LLM like:
+
+```
+Generate a Next.js page named "Home".
+Use this best-practice layout: [{"component": "ExpenseForm"}, {"component": "SubmitButton"}].
+Page spec: "Home"
+```
+
+This ensures the generated page follows the organization's best-practice layout for that domain.
+
 ## Example Response (extended)
 ```json
 {
@@ -119,7 +131,9 @@ The App-Builder agent transforms workspace specifications into production-ready 
 - Parse incoming `app.compose` intents and break down workspace specs
 - Clarify ambiguities using Gemini 2.5 Flash (domain Q&A)
 - **Classify apps as domain or custom using the best-practice catalogue (enforced)**
-- **For domain apps, always use shared models/workflows/UI from the best-practice catalogue**
+- **For domain apps, always use shared models, workflows, and per-page UI layouts from the best-practice catalogue**
+  - When generating code for each page in a domain app, the agent fetches the best-practice layout for that page (if available) and includes a prompt like `Use this best-practice layout: [...]` in the codegen request to the LLM.
+  - This ensures generated pages follow organization standards for structure and UX.
 - **Emit sub-intents to Schema Synthesiser (`schema.synthesise`) and Workflow Composer (`workflow.compose`) for all schema/workflow changes (never mutate directly)**
 - **Run compliance and DLP validation before preview/PR; block if not passed**
 - **Log all sub-intents, compliance checks, and DLP scans for audit**

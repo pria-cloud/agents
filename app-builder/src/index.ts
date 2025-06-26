@@ -69,7 +69,7 @@ async function main() {
         if (payload?.request_id) span.setAttribute('request_id', payload.request_id);
         let result;
         if (intent === 'app.compose') {
-          result = await handleAppComposeIntent(req.body, trace_id, jwt, span);
+          result = await handleAppComposeIntent(payload, trace_id, jwt, span);
           res.status(200).json({ ok: true, trace_id, ...result });
         } else if (intent === 'app.preview') {
           // This is a stub for a potential preview intent

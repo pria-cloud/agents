@@ -26,7 +26,7 @@ export async function createBranch(repo: string, baseBranch: string, newBranch: 
 }
 
 // Commit multiple files to a branch
-export async function commitFiles(repo: string, branch: string, files: { path: string; content: string }[]) {
+export async function commitFiles(repo: string, branch: string, files: { path: string; content: any }[]) {
   // Get the latest commit SHA and tree SHA
   const refRes = await axios.get(`${GITHUB_API}/repos/${repo}/git/ref/heads/${branch}`, { headers });
   const latestCommitSha = refRes.data.object.sha;
@@ -36,9 +36,18 @@ export async function commitFiles(repo: string, branch: string, files: { path: s
   // Create blobs for each file
   const blobs = await Promise.all(
     files.map(async (file) => {
+      let content = file.content;
+      // If content is an object with 'parts', extract the text
+      if (typeof content === 'object' && content !== null && Array.isArray(content.parts) && content.parts[0]?.text) {
+        content = content.parts[0].text;
+      }
+      // If content is still not a string, stringify it
+      if (typeof content !== 'string') {
+        content = JSON.stringify(content, null, 2);
+      }
       const blobRes = await axios.post(
         `${GITHUB_API}/repos/${repo}/git/blobs`,
-        { content: file.content, encoding: 'utf-8' },
+        { content, encoding: 'utf-8' },
         { headers }
       );
       return { path: file.path, sha: blobRes.data.sha };

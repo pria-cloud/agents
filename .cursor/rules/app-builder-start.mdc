@@ -1,0 +1,9 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Always use following command when restarting app-builder agent
+
+
+cd app-builder; npm run start

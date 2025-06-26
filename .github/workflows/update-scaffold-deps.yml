@@ -1,0 +1,38 @@
+name: Update Scaffold Dependencies
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1' # Runs every Monday at midnight
+
+jobs:
+  update-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install npm-check-updates
+        run: npm install -g npm-check-updates
+
+      - name: Check for outdated packages and update
+        id: ncu
+        run: ncu -u --packageFile app-builder/src/scaffold-templates/package.json
+        continue-on-error: true
+
+      - name: Create Pull Request
+        if: steps.ncu.outcome == 'success'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore(deps): update scaffold template dependencies'
+          title: 'Update Scaffold Template Dependencies'
+          body: |
+            This PR updates the dependencies in the `app-builder/src/scaffold-templates/package.json` file to their latest versions.
+          branch: 'chore/update-scaffold-deps'
+          labels: 'dependencies' 

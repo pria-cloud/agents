@@ -1,0 +1,62 @@
+{
+  "payload": {
+    "name": "ExpenseTracker",
+    "description": "A web application for employees to submit, track, and manage their business expenses. Managers can review and approve or reject expense reports. The application should be secure, multi-tenant, and provide a clean, modern user interface.",
+    "user_roles": [
+      "Employee",
+      "Manager"
+    ],
+    "pages": [
+      {
+        "route": "/dashboard",
+        "name": "Dashboard",
+        "description": "Main view after login. Employees see a list of their expenses. Managers see all expenses for their workspace and can filter them. Both can create new expenses from here."
+      },
+      {
+        "route": "/login",
+        "name": "Login Page",
+        "description": "A simple login page using email and password, utilizing Supabase Auth."
+      }
+    ],
+    "data_models": [
+      {
+        "name": "expenses",
+        "description": "Stores individual expense submissions. All queries to this table MUST be filtered by the user's workspace_id.",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "numeric(10, 2)",
+            "description": "The monetary value of the expense."
+          },
+          {
+            "name": "description",
+            "type": "text",
+            "description": "A short description of the expense."
+          },
+          {
+            "name": "status",
+            "type": "text",
+            "enum": ["Pending", "Approved", "Rejected"],
+            "default": "Pending",
+            "description": "The current status of the expense report."
+          },
+          {
+            "name": "user_id",
+            "type": "uuid",
+            "description": "Foreign key to the user who submitted the expense."
+          },
+          {
+            "name": "workspace_id",
+            "type": "uuid",
+            "description": "Foreign key for the tenant workspace to ensure data isolation."
+          }
+        ]
+      }
+    ],
+    "workspace_id": "ws-e2e-test",
+    "request_id": "req-e2e-test-01"
+  },
+  "trace_id": "trace-e2e-test-01",
+  "jwt": "e2e-test-jwt",
+  "intent": "app.compose"
+}
