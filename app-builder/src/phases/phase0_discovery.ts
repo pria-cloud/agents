@@ -1,8 +1,16 @@
-import {LlmAdapter} from '../llmAdapter';
-import {Prompt} from './prompts/Prompt';
-import {trace} from '@opentelemetry/api';
+import { trace } from '@opentelemetry/api';
+import fs from 'fs';
+import path from 'path';
 
 const tracer = trace.getTracer('app-builder');
+
+/**
+ * Defines the contract for an adapter that can interact with a Large Language Model,
+ * specifically for retrieving structured JSON responses.
+ */
+export interface LlmAdapter {
+  getJSONResponse(promptTemplate: string, input: any): Promise<any>;
+}
 
 // Define the structure of the application specification
 export interface AppSpec {
@@ -37,7 +45,10 @@ export async function runPhase0ProductDiscovery(
   return await tracer.startActiveSpan(
     'phase0_discovery.run',
     async (span): Promise<DiscoveryResponse> => {
-      const prompt = new Prompt('phase0_discovery_prompt.md');
+      const promptTemplate = fs.readFileSync(
+        path.resolve(__dirname, 'prompts/phase0_discovery_prompt.md'),
+        'utf-8'
+      );
 
       const initialSpec: AppSpec = {
         spec_version: '1.0',
@@ -55,7 +66,7 @@ export async function runPhase0ProductDiscovery(
         currentSpec: specToUpdate,
       };
 
-      const responseJson = await llmAdapter.getJSONResponse(prompt, JSON.stringify(promptInput));
+      const responseJson = await llmAdapter.getJSONResponse(promptTemplate, promptInput);
 
       span.addEvent('phase0.discovery.llm.response_received');
       span.setAttribute('llm.response.json', JSON.stringify(responseJson));

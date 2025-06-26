@@ -11,7 +11,7 @@ import { recordInferenceCost, recordIntentLatency, recordError } from './otelMet
 import { fetchBestPracticeSpec } from './catalogueClient';
 import { writeFileSync } from 'fs';
 import path from 'path';
-import { runPhase0ProductDiscovery, AppSpec, DiscoveryResponse } from './phases/phase0_discovery';
+import { runPhase0ProductDiscovery, AppSpec, DiscoveryResponse, LlmAdapter } from './phases/phase0_discovery';
 import { runPhase1Plan } from './phases/phase1_plan';
 import { runPhase2Codegen } from './phases/phase2_codegen';
 import { runPhase4TestGen } from './phases/phase4_testgen';
@@ -177,11 +177,15 @@ export async function handleAppComposeIntent(
   const tracer = trace.getTracer('app-builder');
   const { appSpec: incomingSpec, userInput, conversationId } = requestBody;
 
-  const llmAdapter = {
-    getJSONResponse: async (prompt: { toString: (arg: any) => string }, u: any) => {
+  const llmAdapter: LlmAdapter = {
+    getJSONResponse: async (promptTemplate: string, input: any) => {
+      // In a real scenario, you might use a more sophisticated template engine.
+      // For now, we'll just pass the whole input object to the prompt context.
+      const prompt = promptTemplate.replace('{{INPUT}}', JSON.stringify(input, null, 2));
+
       // This is a simplified adapter for demonstration.
       // In a real scenario, this would call the actual LLM service.
-      const rawResponse = await generateWithGemini({ prompt: prompt.toString(u) });
+      const rawResponse = await generateWithGemini({ prompt });
       return JSON.parse(rawResponse);
     },
   };
