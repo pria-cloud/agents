@@ -320,6 +320,9 @@ You must generate every file in the action plan above, ensuring each one is comp
 **CRITICAL:** All column names used in queries and data rendering (e.g., `expense.user_id`, `expense.description`) MUST match the provided database schema exactly. Do not invent or assume column names like `submitted_by` or `title`.
 
 ### General Code Quality Rules
+- **CRITICAL architectural rule**: The file `lib/supabase/middleware.ts` MUST only export a single function called `updateSession`. It must not contain any other logic. All route protection logic must be in the root `middleware.ts` file.
+- **CRITICAL data access rule**: When fetching user-specific data, you must use `const { data: { user } } = await supabase.auth.getUser();` and then get the user id from `user.id`. You must then use this `id` to query the table. For example, if you have a `notes` table with a `user_id` column, you would query it like this: `supabase.from('notes').select('*').eq('user_id', user.id)`. You must not use `user_session` or any other object.
+- **CRITICAL data access rule**: The `user` object from `supabase.auth.getUser()` on its own MAY NOT contain `app_metadata`. You must get the full user object from the `auth.users` table if you need to access `app_metadata`.
 - **CRITICAL:** The generated code MUST NOT contain any `console.log` or `console.error` statements.
 - The UI should be functional and clean. All content must be fully implemented.
 - The code should not contain any placeholder, mock, or conversational logic/comments.

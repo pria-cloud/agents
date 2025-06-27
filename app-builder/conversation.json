@@ -1,0 +1,171 @@
+{
+  "ok": true,
+  "trace_id": "trace-e2e-test-01",
+  "status": "AWAITING_USER_INPUT",
+  "responseToUser": "Excellent. We have the `users` and `notes` tables defined, which provides a solid foundation. Based on your description, I've outlined the core user actions:\n\n**Authentication:**\n-   Register (signup)\n-   Login\n-   Logout\n\n**Notes Management:**\n-   Create a new note\n-   View a list of your notes\n-   View a specific note's details\n-   Update an existing note (a common feature for 'managing' notes)\n-   Delete a note\n\nDoes this set of actions cover everything you envision for your Notes application's MVP?",
+  "updatedAppSpec": {
+    "spec_version": "1.0",
+    "description": "A simple notes application allowing authenticated users to create, view, and delete their own notes.",
+    "domain": "productivity",
+    "schema": {
+      "users": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid",
+            "is_primary_key": true
+          },
+          {
+            "name": "email",
+            "type": "text",
+            "is_unique": true
+          },
+          {
+            "name": "password_hash",
+            "type": "text"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "default": "now()"
+          }
+        ]
+      },
+      "notes": {
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid",
+            "is_primary_key": true
+          },
+          {
+            "name": "user_id",
+            "type": "uuid",
+            "is_foreign_key": true,
+            "references": "users(id)"
+          },
+          {
+            "name": "title",
+            "type": "text"
+          },
+          {
+            "name": "content",
+            "type": "text"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamp with time zone",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamp with time zone",
+            "default": "now()"
+          }
+        ]
+      }
+    },
+    "userActions": [
+      {
+        "name": "register_user",
+        "description": "Allows a new user to create an account.",
+        "requires_auth": false,
+        "input_fields": [
+          "email",
+          "password"
+        ],
+        "output_fields": [
+          "user_id",
+          "email"
+        ]
+      },
+      {
+        "name": "login_user",
+        "description": "Allows an existing user to log in.",
+        "requires_auth": false,
+        "input_fields": [
+          "email",
+          "password"
+        ],
+        "output_fields": [
+          "auth_token",
+          "user_id"
+        ]
+      },
+      {
+        "name": "logout_user",
+        "description": "Allows a logged-in user to log out.",
+        "requires_auth": true,
+        "input_fields": [],
+        "output_fields": []
+      },
+      {
+        "name": "create_note",
+        "description": "Authenticated users can create a new note with a title and content.",
+        "requires_auth": true,
+        "input_fields": [
+          "title",
+          "content"
+        ],
+        "output_fields": [
+          "note_id",
+          "title",
+          "content",
+          "created_at"
+        ]
+      },
+      {
+        "name": "view_notes",
+        "description": "Authenticated users can view a list of all their notes.",
+        "requires_auth": true,
+        "input_fields": [],
+        "output_fields": [
+          "list_of_notes"
+        ]
+      },
+      {
+        "name": "view_single_note",
+        "description": "Authenticated users can view the details of a specific note they own.",
+        "requires_auth": true,
+        "input_fields": [
+          "note_id"
+        ],
+        "output_fields": [
+          "note_id",
+          "title",
+          "content",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      {
+        "name": "update_note",
+        "description": "Authenticated users can modify the title and content of their notes.",
+        "requires_auth": true,
+        "input_fields": [
+          "note_id",
+          "title",
+          "content"
+        ],
+        "output_fields": [
+          "note_id",
+          "title",
+          "content",
+          "updated_at"
+        ]
+      },
+      {
+        "name": "delete_note",
+        "description": "Authenticated users can delete their notes.",
+        "requires_auth": true,
+        "input_fields": [
+          "note_id"
+        ],
+        "output_fields": [
+          "success"
+        ]
+      }
+    ],
+    "isConfirmed": false
+  }
+}

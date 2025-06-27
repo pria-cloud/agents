@@ -7,6 +7,7 @@ exports.handleAppComposeIntent = handleAppComposeIntent;
 require("dotenv/config");
 const a2aClient_1 = require("./a2aClient");
 const express_1 = __importDefault(require("express"));
+const llmAdapter_1 = require("./llmAdapter");
 const githubClient_1 = require("./githubClient");
 const otel_1 = require("./otel");
 const pino_1 = __importDefault(require("pino"));
@@ -14,12 +15,14 @@ const api_1 = require("@opentelemetry/api");
 const otelMetrics_1 = require("./otelMetrics");
 const catalogueClient_1 = require("./catalogueClient");
 const path_1 = __importDefault(require("path"));
-const phase0_clarification_1 = require("./phases/phase0_clarification");
+const phase0_discovery_1 = require("./phases/phase0_discovery");
 const phase1_plan_1 = require("./phases/phase1_plan");
 const phase2_codegen_1 = require("./phases/phase2_codegen");
+const phase4_testgen_1 = require("./phases/phase4_testgen");
 const phase_review_1 = require("./phases/phase_review");
 const writeGeneratedApp_1 = require("./writeGeneratedApp");
 const fs_extra_1 = __importDefault(require("fs-extra"));
+const mcp_client_1 = require("./mcp_client");
 const logger = (0, pino_1.default)({
     name: 'app-builder',
     level: process.env.LOG_LEVEL || 'info',
@@ -69,7 +72,7 @@ async function main() {
                 let result;
                 if (intent === 'app.compose') {
                     result = await handleAppComposeIntent(payload, trace_id, jwt, span);
-                    res.status(200).json({ ok: true, trace_id, result });
+                    res.status(200).json({ ok: true, trace_id, ...result });
                 }
                 else if (intent === 'app.preview') {
                     // This is a stub for a potential preview intent
@@ -156,8 +159,71 @@ async function writeAppFromScaffold(generatedFiles, dependencies = []) {
     logger.info({ event: 'scaffold.write.complete' }, 'Finished writing generated app from scaffold.');
 }
 // Handler for app.compose intents
-async function handleAppComposeIntent(appSpec, trace_id, jwt, parentSpan) {
+async function handleAppComposeIntent(requestBody, trace_id, jwt, parentSpan) {
+    logger.info({ event: 'handleAppComposeIntent.entry', requestBody }, 'Entering app compose handler');
     const tracer = api_1.trace.getTracer('app-builder');
+    const { appSpec: incomingSpec, userInput, conversationId } = requestBody;
+    const llmAdapter = {
+        getJSONResponse: async (promptTemplate, input) => {
+            // Construct the final prompt by combining the template and the specific input for this turn.
+            const finalPrompt = `${promptTemplate}\n\n## Current Request\n\nHere is the user's input and the current specification state:\n\n${JSON.stringify(input, null, 2)}`;
+            let rawResponse = await (0, llmAdapter_1.generateWithGemini)({ prompt: finalPrompt });
+            // Clean the response from the LLM - it may be wrapped in a ```json block
+            const jsonRegex = /```json\n([\s\S]*?)\n```/;
+            const match = rawResponse.match(jsonRegex);
+            if (match && match[1]) {
+                rawResponse = match[1];
+            }
+            // Sometimes the LLM fails to return valid JSON. We'll try to parse it, and if it fails, we'll return an error.
+            try {
+                return JSON.parse(rawResponse);
+            }
+            catch (e) {
+                logger.error({ event: 'llm.response.invalid_json', json: rawResponse, error: e.message }, "LLM response could not be parsed as JSON");
+                // Re-throw the error to be caught by the phase runner
+                throw new Error(`Failed to parse LLM's JSON response: ${e.message}`);
+            }
+        },
+    };
+    // Phase 0: Product Discovery (Conversational)
+    // If the spec is not yet confirmed by the user, we are in the discovery phase.
+    if (!incomingSpec?.isConfirmed) {
+        const discoveryResult = await (0, phase0_discovery_1.runPhase0ProductDiscovery)(userInput, incomingSpec, llmAdapter);
+        // If discovery is not complete, we await more user input.
+        if (!discoveryResult.isComplete) {
+            return {
+                status: 'AWAITING_USER_INPUT',
+                responseToUser: discoveryResult.responseToUser,
+                updatedAppSpec: discoveryResult.updatedAppSpec, // This will be cached by the router
+            };
+        }
+        // If discovery is complete, ask for final confirmation.
+        // The spec is passed back and forth until the user confirms.
+        const confirmedSpec = { ...discoveryResult.updatedAppSpec, isConfirmed: false }; // Mark as ready for confirmation
+        return {
+            status: 'AWAITING_USER_INPUT', // Still waiting for the 'yes'
+            responseToUser: discoveryResult.responseToUser,
+            updatedAppSpec: confirmedSpec,
+        };
+    }
+    // The user has confirmed with 'yes', and the spec is confirmed.
+    const appSpec = incomingSpec;
+    logger.info({ event: 'phase.discovery.confirmed', appSpec }, 'Product discovery complete and confirmed by user.');
+    // MCP Integration: Fetch dynamic context before generation
+    let dbSchemaTypes = '';
+    try {
+        // In a real scenario, you might have logic to select the correct project.
+        // For now, we'll hardcode the one we identified as most likely.
+        const projectId = 'ktodzuolttfqrkozlsae';
+        logger.info({ event: 'mcp.supabase.project_selected', projectId }, 'Selected Supabase project');
+        const typesResult = await (0, mcp_client_1.mcp_supabase_generate_typescript_types)({ projectId });
+        dbSchemaTypes = typesResult.types;
+        logger.info({ event: 'mcp.supabase.types_fetched' }, 'Successfully fetched Supabase DB types');
+    }
+    catch (err) {
+        logger.warn({ event: 'mcp.supabase.types_error', err }, 'Could not fetch Supabase DB types. Proceeding without them.');
+        dbSchemaTypes = 'Error: Could not fetch database schema from Supabase.';
+    }
     const startTime = Date.now();
     const labels = {
         service: 'app-builder',
@@ -166,19 +232,6 @@ async function handleAppComposeIntent(appSpec, trace_id, jwt, parentSpan) {
         request_id: appSpec?.request_id || '',
     };
     try {
-        // Phase 0: Clarification (Conditional)
-        // If we don't have a spec version or a description, we must enter the clarification phase.
-        if (!appSpec?.spec_version && !appSpec?.description) {
-            const userInput = appSpec.userInput || 'an application';
-            const clarificationResult = await (0, phase0_clarification_1.runPhase0Clarification)(userInput);
-            // The result of clarification should be a new appSpec or questions.
-            // For now, we'll just return it.
-            logger.info({ event: 'phase.clarification.result', clarificationResult }, 'Clarification needed');
-            return {
-                status: 'clarification_needed',
-                ...clarificationResult,
-            };
-        }
         // Phase 1: Planning & Classification
         let bestPracticeCatalogue = {};
         if (appSpec.domain) {
@@ -189,103 +242,118 @@ async function handleAppComposeIntent(appSpec, trace_id, jwt, parentSpan) {
                 logger.error({ ...labels, event: 'best_practice_catalogue.error', err }, 'Failed to fetch best practice catalogue. Continuing without it.');
             }
         }
-        const plan = await (0, phase1_plan_1.runPhase1Plan)(appSpec, bestPracticeCatalogue);
-        const appType = plan.classification || plan.appType || 'custom';
-        const bestPracticeTemplate = plan.bestPracticeTemplate || {};
-        const actionPlan = plan.actionPlan || plan.action_plan || plan.steps || [];
+        const planResult = await (0, phase1_plan_1.runPhase1Plan)(appSpec, bestPracticeCatalogue);
+        let actionPlan = planResult.actionPlan;
+        logger.info({ event: 'phase.plan.complete', actionPlan });
         logger.info({ event: 'phase.codegen.action_plan', actionPlan }, 'Action plan before codegen loop');
-        let allGeneratedFiles = [];
-        // NEW: Pass the structured action plan directly to the codegen phase.
-        const codegenResult = await (0, phase2_codegen_1.runPhase2Codegen)({
-            actionPlan,
-            brief: appSpec.description || appSpec.brief || "Build the application as described in the action plan.",
-        });
-        // Parse all outputs from the raw codegen result
-        allGeneratedFiles = (0, writeGeneratedApp_1.parsePriaWriteBlocks)(codegenResult.raw);
-        const dependencies = (0, writeGeneratedApp_1.parsePriaDependencyTags)(codegenResult.raw);
-        if (dependencies.length > 0) {
-            logger.info({ event: 'dependencies.found', dependencies }, 'Found dependencies to install');
-            // In a real implementation, you would trigger `npm install` here.
-            // For now, we just log them.
-        }
-        if (allGeneratedFiles.length === 0) {
-            logger.error({ event: 'codegen.no_pria_write_blocks', codegenRaw: codegenResult.raw }, 'No <pria-write ...> blocks parsed from codegen output');
-            (0, otelMetrics_1.recordError)({ ...labels, error_type: 'codegen_no_output' });
-            throw new Error('Codegen LLM output did not contain any <pria-write ...> blocks. Please check the LLM prompt and output format.');
-        }
-        logger.info({ event: 'phase.codegen.all_generated_files', count: allGeneratedFiles.length }, 'All generated files after codegen loop');
-        // PHASE REVIEW: Submit all generated files to the LLM for review
-        let reviewResults = await (0, phase_review_1.runPhaseReview)(allGeneratedFiles, plan.schema);
-        logger.info({ event: 'phase.review.completed', reviewResults }, 'Completed LLM review phase');
-        let retryCount = 0;
-        const maxRetries = 2;
-        let filesToRetry = reviewResults.filter(r => !r.pass).map(r => r.filePath);
-        // Helper: Map filePath to action plan step
-        const fileToStep = new Map();
-        for (const step of actionPlan) {
-            if (step.filePath) {
-                // Clean the path to ensure consistent matching
-                const cleanPath = step.filePath.replace(/^"|"$/g, '');
-                fileToStep.set(cleanPath, step);
-            }
-        }
-        while (filesToRetry.length > 0 && retryCount < maxRetries) {
-            logger.warn({ ...labels, event: 'review.retry', filesToRetry, retryCount }, 'Retrying codegen for files that failed review');
-            retryCount++;
-            // Clean the file paths from the review before looking them up
-            const cleanedFilesToRetry = filesToRetry.map(p => p.replace(/^"|"$/g, ''));
-            const stepsToRetry = cleanedFilesToRetry.map(filePath => fileToStep.get(filePath)).filter(Boolean);
-            if (stepsToRetry.length > 0) {
-                // Construct a new action plan with feedback for the failed steps
-                const retryActionPlan = stepsToRetry.map(step => {
-                    const review = reviewResults.find(r => r.filePath === step.filePath);
-                    return {
-                        ...step,
-                        description: `${step.description}\n\nThis file previously failed a review with the following feedback: ${review?.feedback}`
-                    };
-                });
+        let allReviewsPass = false;
+        let reviewRetries = 0;
+        const MAX_REVIEW_RETRIES = 3;
+        let generatedFiles = [];
+        while (reviewRetries < MAX_REVIEW_RETRIES && !allReviewsPass) {
+            // Phase 2: Codegen
+            // On the first run, actionPlan has the full plan. On retries, it's empty,
+            // so this will only run once unless a correction fails and we repopulate the plan.
+            if (actionPlan.length > 0) {
                 const codegenResult = await (0, phase2_codegen_1.runPhase2Codegen)({
-                    actionPlan: retryActionPlan,
-                    brief: "This is a retry attempt. The following files failed a review. Please regenerate them, carefully following the original description and the new feedback provided in the action plan.",
+                    actionPlan,
+                    brief: JSON.stringify(appSpec, null, 2),
+                    dbSchema: dbSchemaTypes,
                 });
-                const newFiles = (0, writeGeneratedApp_1.parsePriaWriteBlocks)(codegenResult.raw);
-                // Replace the old failed files with the new ones
-                const newFilePaths = newFiles.map(f => f.filePath.replace(/^"|"$/g, ''));
-                allGeneratedFiles = allGeneratedFiles.filter(f => !newFilePaths.includes(f.filePath.replace(/^"|"$/g, '')));
-                allGeneratedFiles.push(...newFiles);
-                // Re-run review on the new files
-                const newReviewResults = await (0, phase_review_1.runPhaseReview)(newFiles, plan.schema);
-                reviewResults = reviewResults.filter(r => !cleanedFilesToRetry.includes(r.filePath.replace(/^"|"$/g, '')));
-                reviewResults.push(...newReviewResults);
-                filesToRetry = newReviewResults.filter(r => !r.pass).map(r => r.filePath);
+                generatedFiles = (0, writeGeneratedApp_1.parsePriaWriteBlocks)(codegenResult.raw);
+                logger.info({ event: 'phase.codegen.complete', files: generatedFiles.map(f => f.filePath) });
+            }
+            // Phase 3: Review all generated files
+            const reviewResults = await (0, phase_review_1.runPhaseReview)(generatedFiles, appSpec);
+            const failedReviews = reviewResults.filter(r => !r.pass);
+            if (failedReviews.length === 0) {
+                allReviewsPass = true;
+                logger.info({ event: 'review.passed' }, 'All files passed the review phase.');
+                // If we succeeded, we can break out of the retry loop.
+                break;
+            }
+            // If we're here, some files failed. Increment retry counter.
+            reviewRetries++;
+            logger.warn({ event: 'review.failed', attempt: reviewRetries, failedReviews }, `Review attempt #${reviewRetries} failed. Files: ${failedReviews.map(f => f.filePath).join(', ')}`);
+            if (reviewRetries >= MAX_REVIEW_RETRIES) {
+                logger.error({ event: 'review.failed.max_retries', failedReviews }, 'Max review retries reached. Aborting.');
+                throw new Error(`One or more files failed the review after ${MAX_REVIEW_RETRIES} attempts. First error: ${failedReviews[0].feedback}`);
+            }
+            // Attempt to correct the first failed file
+            const firstFailedReview = failedReviews[0];
+            const fileToCorrect = generatedFiles.find(f => f.filePath === firstFailedReview.filePath);
+            if (!fileToCorrect) {
+                // This is a safety check. It shouldn't happen in normal flow.
+                logger.error({ event: 'review.file_not_found_for_correction', filePath: firstFailedReview.filePath });
+                actionPlan = planResult.actionPlan.filter((p) => p.filePath === firstFailedReview.filePath);
+                continue; // Retry by regenerating the missing file
+            }
+            logger.info({ event: 'review.correction.start', file: fileToCorrect.filePath }, 'Attempting to correct a single file.');
+            const correctionResult = await (0, phase2_codegen_1.runPhase2Codegen)({
+                actionPlan: [], // Not needed for a correction
+                brief: JSON.stringify(appSpec, null, 2),
+                failedReview: {
+                    file: fileToCorrect,
+                    feedback: firstFailedReview.feedback,
+                },
+            });
+            const correctedFileArray = (0, writeGeneratedApp_1.parsePriaWriteBlocks)(correctionResult.raw);
+            if (correctedFileArray.length === 0 || !correctedFileArray[0].content) {
+                logger.warn({ event: 'review.correction.no_output', file: fileToCorrect.filePath }, 'Correction attempt produced no parsable file content. Retrying generation for this file.');
+                actionPlan = planResult.actionPlan.filter((p) => p.filePath === firstFailedReview.filePath);
+                continue;
+            }
+            const correctedFile = correctedFileArray[0];
+            // Find the index of the old file and replace it with the corrected version.
+            const fileIndex = generatedFiles.findIndex(f => f.filePath === correctedFile.filePath);
+            if (fileIndex !== -1) {
+                generatedFiles[fileIndex] = correctedFile;
+                logger.info({ event: 'review.correction.file_updated', file: correctedFile.filePath });
             }
             else {
-                // No steps found to retry, break the loop
-                logger.error({ ...labels, event: 'review.retry.no_steps_found', filesToRetry }, 'Could not find action plan steps for failed files. Aborting retry.');
-                filesToRetry = [];
+                // This is unlikely, but handle it just in case.
+                generatedFiles.push(correctedFile);
+                logger.warn({ event: 'review.correction.file_added', file: correctedFile.filePath });
+            }
+            // The action plan should be empty for the next loop, so we only re-run the review.
+            actionPlan = [];
+        }
+        if (!allReviewsPass) {
+            // This path is taken if the loop exits due to max retries
+            throw new Error("Failed to generate compliant code after multiple retries. Please check the logs for details.");
+        }
+        // Phase 4: Test Generation
+        const testFiles = [];
+        for (const file of generatedFiles) {
+            // A simple heuristic to decide if a file is a component that needs a test
+            if (file.filePath.includes('components/') && (file.filePath.endsWith('.tsx') || file.filePath.endsWith('.jsx'))) {
+                const testFilePath = file.filePath.replace(/(\.tsx|\.jsx)/, '.test$1');
+                const testContent = await (0, phase4_testgen_1.runPhase4TestGen)({
+                    filePath: file.filePath,
+                    componentContent: file.content,
+                    testFilePath: testFilePath,
+                });
+                if (testContent) {
+                    testFiles.push({ filePath: testFilePath, content: testContent });
+                }
             }
         }
-        // Final check for failed files after retries
-        const failedReviews = reviewResults.filter(r => !r.pass);
-        if (failedReviews.length > 0) {
-            logger.error({ event: 'review.failed', failedReviews }, 'Some files failed the review phase after retries. Aborting.');
-            (0, otelMetrics_1.recordError)({ ...labels, error_type: 'review_failed' });
-            throw new Error(`All generated files failed the review. Aborting. The first error was: ${failedReviews[0].feedback}`);
-        }
+        logger.info({ event: 'phase.testgen.complete', files: testFiles.map(f => f.filePath) });
         // *** NEW: Write generated files to disk using the scaffold function ***
-        await writeAppFromScaffold(allGeneratedFiles, dependencies);
+        const allGeneratedFiles = [...generatedFiles, ...testFiles];
+        await writeAppFromScaffold(allGeneratedFiles, []);
         // 4. Prepare schema and workflow sub-intents (stub)
         let schemaSynthResult = null;
         let workflowSynthResult = null;
-        switch (appType) {
+        switch (appSpec.appType) {
             case 'domain':
-                if (isBestPracticeTemplate(bestPracticeTemplate)) {
+                if (isBestPracticeTemplate(planResult.bestPracticeTemplate)) {
                     await tracer.startActiveSpan('subintent.schema.synthesise', async (span) => {
                         schemaSynthResult = await (0, a2aClient_1.sendIntent)({
                             intent: 'schema.synthesise',
                             payload: {
                                 workspace_id: appSpec.workspace_id,
-                                models: bestPracticeTemplate.sharedModels,
+                                models: planResult.bestPracticeTemplate.sharedModels,
                                 request_id: appSpec.request_id,
                             },
                             trace_id: trace_id || '',
@@ -299,7 +367,7 @@ async function handleAppComposeIntent(appSpec, trace_id, jwt, parentSpan) {
                             intent: 'workflow.compose',
                             payload: {
                                 workspace_id: appSpec.workspace_id,
-                                workflows: bestPracticeTemplate.sharedWorkflows,
+                                workflows: planResult.bestPracticeTemplate.sharedWorkflows,
                                 request_id: appSpec.request_id,
                             },
                             trace_id: trace_id || '',
@@ -357,7 +425,7 @@ async function handleAppComposeIntent(appSpec, trace_id, jwt, parentSpan) {
             status: 'completed',
             message: 'Application composition complete. A draft PR has been opened.',
             generated_files: allGeneratedFiles.map(f => f.filePath),
-            dependencies,
+            dependencies: [],
             compliance: null,
         };
     }
@@ -369,4 +437,4 @@ async function handleAppComposeIntent(appSpec, trace_id, jwt, parentSpan) {
         throw err;
     }
 }
-main();
+// main(); // This call is redundant because startOtel().then(() => main()) already calls it. 
