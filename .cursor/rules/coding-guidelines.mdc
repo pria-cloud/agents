@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Don't implement architectural changes or try to fix bugs without consulting and approval. You can investigate but do not implement.
+
+Always let me rebuild and restart the applications as you have issues with the correct terminal commands on this computer.
+
+
+Be very careful to not break any existing code of funtionality when implementing changes of bug fixes. Do not delete any sections of the code you are not specifically familiar with or working on fixing.

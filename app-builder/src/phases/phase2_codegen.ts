@@ -33,26 +33,25 @@ export async function runPhase2Codegen({
   let system: string;
   let prompt: string;
 
-  // Always start with the main, detailed system prompt
-  system = fs.readFileSync(path.resolve(__dirname, './prompts/phase2_codegen_prompt.md'), 'utf-8');
-  system = system.replace('{brief}', brief);
-  system = system.replace('{dbSchema}', dbSchema || 'No schema provided.');
-  system = system.replace('{actionPlan}', JSON.stringify(actionPlan, null, 2));
-
   if (failedReview) {
     // A file failed review, so we are in a correction loop.
-    // Instead of replacing the system prompt, we add the correction instructions to the user prompt.
-    const correctionInstruction = fs.readFileSync(path.resolve(__dirname, './prompts/phase2_codegen_correction_prompt.md'), 'utf-8');
+    system = fs.readFileSync(path.resolve(__dirname, './prompts/phase2_codegen_correction_prompt.md'), 'utf-8');
+    system = system.replace('{brief}', brief);
+    system = system.replace('{dbSchema}', dbSchema || 'No schema provided.');
+    system = system.replace('{filePath}', failedReview.file.filePath);
     
     // Create a focused user prompt for the correction task.
-    prompt = `${correctionInstruction}\n\n## Feedback:\n${failedReview.feedback}\n\n## Original Code for ${failedReview.file.filePath}:\n\`\`\`\n${failedReview.file.content}\n\`\`\``;
-    prompt = prompt.replace('{brief}', brief);
-    prompt = prompt.replace('{filePath}', failedReview.file.filePath);
+    prompt = `## Feedback:\n${failedReview.feedback}\n\n## Original Code for ${failedReview.file.filePath}:\n\`\`\`\n${failedReview.file.content}\n\`\`\``;
 
     logger.info({ event: 'phase.codegen.correction_prompt', prompt, system }, 'Correction prompt sent to LLM');
 
   } else {
-    // This is the initial code generation
+    // This is the initial code generation, using the main prompt.
+    system = fs.readFileSync(path.resolve(__dirname, './prompts/phase2_codegen_prompt.md'), 'utf-8');
+    system = system.replace('{brief}', brief);
+    system = system.replace('{dbSchema}', dbSchema || 'No schema provided.');
+    system = system.replace('{actionPlan}', JSON.stringify(actionPlan, null, 2));
+
     prompt = `Please generate the code as requested in the system prompt.`;
     logger.info({ event: 'phase.codegen.prompt', prompt, system }, 'Initial prompt and system sent to LLM in codegen phase');
   }

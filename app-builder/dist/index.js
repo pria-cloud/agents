@@ -56,7 +56,7 @@ async function main() {
     const app = (0, express_1.default)();
     app.use(express_1.default.json());
     app.post('/intent', async (req, res) => {
-        const { intent, trace_id, jwt, payload } = req.body;
+        const { intent, trace_id, jwt } = req.body;
         logger.info({ event: 'intent.received', intent, trace_id }, 'Received intent');
         // Start a root span for the intent
         const tracer = api_1.trace.getTracer('app-builder');
@@ -65,6 +65,8 @@ async function main() {
                 // Add trace_id, workspace_id, request_id as span attributes if present
                 if (trace_id)
                     span.setAttribute('trace_id', trace_id);
+                // We will pass the whole body as the payload now
+                const payload = req.body;
                 if (payload?.workspace_id)
                     span.setAttribute('workspace_id', payload.workspace_id);
                 if (payload?.request_id)
@@ -162,7 +164,8 @@ async function writeAppFromScaffold(generatedFiles, dependencies = []) {
 async function handleAppComposeIntent(requestBody, trace_id, jwt, parentSpan) {
     logger.info({ event: 'handleAppComposeIntent.entry', requestBody }, 'Entering app compose handler');
     const tracer = api_1.trace.getTracer('app-builder');
-    const { appSpec: incomingSpec, userInput, conversationId } = requestBody;
+    const { userInput, conversationId } = requestBody;
+    const incomingSpec = requestBody.appSpec;
     const llmAdapter = {
         getJSONResponse: async (promptTemplate, input) => {
             // Construct the final prompt by combining the template and the specific input for this turn.
@@ -197,14 +200,23 @@ async function handleAppComposeIntent(requestBody, trace_id, jwt, parentSpan) {
                 updatedAppSpec: discoveryResult.updatedAppSpec, // This will be cached by the router
             };
         }
-        // If discovery is complete, ask for final confirmation.
-        // The spec is passed back and forth until the user confirms.
-        const confirmedSpec = { ...discoveryResult.updatedAppSpec, isConfirmed: false }; // Mark as ready for confirmation
-        return {
-            status: 'AWAITING_USER_INPUT', // Still waiting for the 'yes'
-            responseToUser: discoveryResult.responseToUser,
-            updatedAppSpec: confirmedSpec,
-        };
+        // At this point, the discovery phase *thinks* it's complete.
+        // We will present the summary and mark the spec as ready for final confirmation.
+        const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
+        // Before we return, check if the user's last message was the final "yes".
+        const positiveConfirmation = userInput?.toLowerCase().includes('yes') || userInput?.toLowerCase().includes('proceed');
+        if (positiveConfirmation && incomingSpec) { // `incomingSpec` must exist to be confirming it
+            // The user has confirmed. We can override the spec with a confirmed status and let the flow continue.
+            incomingSpec.isConfirmed = true;
+        }
+        else {
+            // The user has NOT confirmed yet. Return the summary and wait for the 'yes'.
+            return {
+                status: 'AWAITING_USER_INPUT',
+                responseToUser: discoveryResult.responseToUser,
+                updatedAppSpec: specForConfirmation,
+            };
+        }
     }
     // The user has confirmed with 'yes', and the spec is confirmed.
     const appSpec = incomingSpec;

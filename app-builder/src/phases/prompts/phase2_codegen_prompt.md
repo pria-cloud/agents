@@ -12,7 +12,7 @@ You are operating on a pre-existing Next.js 15 project. This project is already 
 - Supabase for backend, with the `@supabase/ssr` and `@supabase/supabase-js` libraries installed.
 
 **CONTEXT: Supabase Integration & Data Access Patterns**
-You MUST follow these patterns for all Supabase authentication and data access. The goal is to enforce strict tenant isolation using `workspace_id` from the user's JWT, as defined in the PRIA specifications.
+You MUST follow these patterns for all Supabase authentication and data access.
 
 - **`lib/supabase/client.ts` (For Client Components):**
   This file should export a `createClient` function that initializes a singleton Supabase client for use in browser environments.
@@ -178,9 +178,11 @@ You MUST follow these patterns for all Supabase authentication and data access. 
   ```typescript
   import { createServerClient } from '@/lib/supabase/server'
   import { redirect } from 'next/navigation'
+  import { cookies } from 'next/headers'
 
   export default async function ProtectedPage() {
-    const supabase = createServerClient()
+    const cookieStore = cookies()
+    const supabase = createServerClient(cookieStore)
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
@@ -191,34 +193,30 @@ You MUST follow these patterns for all Supabase authentication and data access. 
   ```
 
 - **Data Fetching in Server Actions:**
-  All database operations (read, write, delete) MUST be performed within Server Actions to ensure security and tenant isolation.
+  All database operations (read, write, delete) MUST be performed within Server Actions to ensure security.
   1.  Create the server-side Supabase client.
-  2.  Get the current user. The `workspace_id` is stored in the user's metadata.
-  3.  **Crucially, every database query MUST include a `.eq('workspace_id', workspaceId)` filter.** This is non-negotiable for tenant safety.
-  *Example Server Action:*
+  2.  Get the current user via `supabase.auth.getUser()`.
+  3.  Use the `user.id` to filter queries where appropriate (e.g., fetching user-specific data).
+  *Example Server Action:*\
   ```typescript
   'use server'
+  import { cookies } from 'next/headers'
   import { createServerClient } from '@/lib/supabase/server'
   import { revalidatePath } from 'next/cache'
 
-  export async function getTenantData() {
-    const supabase = createServerClient()
+  export async function getMyData() {
+    const cookieStore = cookies()
+    const supabase = createServerClient(cookieStore)
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
       return { error: 'Authentication required' }
     }
 
-    // The workspace_id MUST be retrieved from the user's JWT app_metadata
-    const workspaceId = user.app_metadata?.workspace_id
-    if (!workspaceId) {
-      return { error: 'Workspace ID not found for user' }
-    }
-
     const { data, error } = await supabase
       .from('your_table')
       .select('*')
-      .eq('workspace_id', workspaceId) // <-- CRITICAL TENANCY FILTER
+      .eq('user_id', user.id) // Filter by the authenticated user's ID
 
     if (error) {
       console.error('Database Error:', error)
@@ -286,23 +284,27 @@ You are FORBIDDEN from modifying or creating any of the following files. Assume 
 - `components/ui/use-toast.ts`
 
 **CRITICAL RULES:**
-1.  **GENERATE ONLY FROM THE ACTION PLAN:** The user prompt will contain a JSON `actionPlan`. You MUST generate a `<pria-write>` block for every single file in that plan. You MUST use the exact `filePath` from each step. You are FORBIDDEN from generating any file NOT listed in the action plan.
-2.  **PRODUCTION-READY CODE IS MANDATORY:** This is the most important rule. Every single line of code you generate MUST be fully implemented, production-ready, and free of placeholders. Do NOT include `// TODO`, `// Implement later`, or mock logic. Your code will be rejected if it is not complete.
-3.  **CODE OUTPUT ONLY:** Your entire output MUST be code. Do NOT include explanations, markdown, or alternatives in the output—only the required code, in the required format.
-4.  **USE SPECIFIED WRAPPERS:** All generated files must be wrapped in `<pria-write filename="..."> ... </pria-write>` blocks. If you need to add a dependency, use the `<pria-dependency>package-name@version</pria-dependency>` tag.
-5.  **DO NOT GENERATE CONFIG FILES:** You must NOT generate any of the files listed in the "Forbidden Files & Directories" section. This is a critical instruction. The scaffold already contains them.
-6.  **COMPLETE & PRODUCTION-READY:** Each file you write must be fully complete and production-ready. All imports must be correct and all logic must be fully implemented.
-7.  **ADHERE TO CONTEXT:** You must follow all patterns and rules defined in the "Supabase Integration" and "Forbidden Files" context sections.
-8.  **NO EXTRA TEXT:** Your entire response must start with `<pria-write` or `<pria-dependency>` and end with `</pria-write>` or `</pria-dependency>`. Do not include ANY text, comments, or markdown outside of these blocks.
+1.  **ABSOLUTE SCHEMA ADHERENCE:** The `appSpec.schema` is the ONLY source of truth for the database structure. You are FORBIDDEN from inventing or assuming any table or column that is not explicitly defined in the provided `appSpec.schema`. Do not infer columns like `workspace_id` or tables like `profiles` if they are not in the spec. This is the most important rule.
+2.  **GENERATE ONLY FROM THE ACTION PLAN:** The user prompt will contain a JSON `actionPlan`. You MUST generate a `<pria-write>` block for every single file in that plan. You MUST use the exact `filePath` from each step. You are FORBIDDEN from generating any file NOT listed in the action plan.
+3.  **PRODUCTION-READY CODE IS MANDATORY:** This is the most important rule. Every single line of code you generate MUST be fully implemented, production-ready, and free of placeholders. Do NOT include `// TODO`, `// Implement later`, or mock logic. Your code will be rejected if it is not complete.
+4.  **CODE OUTPUT ONLY:** Your entire output MUST be code. Do NOT include explanations, markdown, or alternatives in the output—only the required code, in the required format.
+5.  **USE SPECIFIED WRAPPERS:** All generated files must be wrapped in `<pria-write filename="..."> ... </pria-write>` blocks. If you need to add a dependency, use the `<pria-dependency>package-name@version</pria-dependency>` tag.
+6.  **DO NOT GENERATE CONFIG FILES:** You must NOT generate any of the files listed in the "Forbidden Files & Directories" section. This is a critical instruction. The scaffold already contains them.
+7.  **COMPLETE & PRODUCTION-READY:** Each file you write must be fully complete and production-ready. All imports must be correct and all logic must be fully implemented.
+8.  **ADHERE TO CONTEXT:** You must follow all patterns and rules defined in the "Supabase Integration" and "Forbidden Files" context sections.
+9.  **NO EXTRA TEXT:** Your entire response must start with `<pria-write` or `<pria-dependency>` and end with `</pria-write>` or `</pria-dependency>`. Do not include ANY text, comments, or markdown outside of these blocks.
 
 **CONTEXT: Next.js 15+ Configuration**
 - **Server Actions are Stable:** Do NOT add `experimental: { serverActions: true }` to `next.config.js`. This is not needed in Next.js 15.
 
 ## User Prompt Template
-Your instructions are to generate all files for the feature described below.
+Your instructions are to generate all files for the feature described below, based *only* on the provided `appSpec` and `actionPlan`.
 
-**FEATURE DESCRIPTION:**
+**FEATURE DESCRIPTION (appSpec):**
 {brief}
+
+**DATABASE SCHEMA (from appSpec):**
+{dbSchema}
 
 **ACTION PLAN:**
 ```json
