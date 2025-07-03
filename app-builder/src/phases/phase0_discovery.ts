@@ -3,7 +3,6 @@ import { z } from 'zod';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
-import { Type } from '@google/genai';
 
 const logger = pino({
   name: 'phase0-discovery',
@@ -12,11 +11,13 @@ const logger = pino({
 
 // Zod schema for the AppSpec
 const AppSpecSchema = z.object({
-    spec_version: z.string(),
+    // description remains required as a minimal field
     description: z.string(),
-    domain: z.string(),
-    schema: z.record(z.any()), // A record of tables
-    userActions: z.array(z.record(z.any())), // An array of user actions
+    // The following fields are optional during the iterative discovery process
+    spec_version: z.string().optional(),
+    domain: z.string().optional(),
+    schema: z.object({}).passthrough().optional(),
+    userActions: z.array(z.object({}).passthrough()).optional(),
     isConfirmed: z.boolean().optional().nullable(),
 });
 
@@ -27,26 +28,27 @@ const DiscoveryResponseSchema = z.object({
     isComplete: z.boolean(),
 });
 
-// Define the JSON schema for the Gemini API based on the Zod schema
+// JSON schema for Gemini (must not contain empty `properties`)
 const GeminiSchema = {
-    type: Type.OBJECT,
-    properties: {
-        updatedAppSpec: {
-            type: Type.OBJECT,
-            properties: {
-                spec_version: { type: Type.STRING },
-                description: { type: Type.STRING },
-                domain: { type: Type.STRING },
-                schema: {}, // Allow any object
-                userActions: { type: Type.ARRAY, items: {} }, // Allow any object in the array
-                isConfirmed: { type: Type.BOOLEAN, nullable: true },
-            },
-            required: ['spec_version', 'description', 'domain', 'schema', 'userActions']
-        },
-        responseToUser: { type: Type.STRING },
-        isComplete: { type: Type.BOOLEAN },
+  type: 'object',
+  properties: {
+    updatedAppSpec: {
+      type: 'object',
+      // allow any additional keys inside updatedAppSpec
+      additionalProperties: true,
+      properties: {
+        spec_version: { type: 'string' },
+        description: { type: 'string' },
+        domain: { type: 'string' },
+        // schema and userActions are intentionally omitted to avoid empty properties errors
+        isConfirmed: { type: 'boolean', nullable: true },
+      },
+      required: ['spec_version', 'description', 'domain'],
     },
-    required: ['updatedAppSpec', 'responseToUser', 'isComplete'],
+    responseToUser: { type: 'string' },
+    isComplete: { type: 'boolean' },
+  },
+  required: ['updatedAppSpec', 'responseToUser', 'isComplete'],
 };
 
 // Helper function to assemble prompts from partials
@@ -70,11 +72,32 @@ export async function runPhase0ProductDiscovery(userInput: string, currentSpec: 
   const prompt = `Here is the current state of our conversation. Please continue the product discovery based on my latest input.\n\nUserInput: "${userInput}"\n\nCurrentSpec: ${JSON.stringify(currentSpec, null, 2)}`;
 
   logger.info({ event: 'phase.discovery.prompt', conversationId }, 'Prompt sent to LLM for product discovery');
-  const raw = await generateWithGemini({ prompt, system, responseSchema: GeminiSchema });
+  const raw = await generateWithGemini({ prompt, system });
   logger.info({ event: 'phase.discovery.raw_output', conversationId, raw }, 'Raw LLM output from discovery phase');
 
   try {
-    const parsed = JSON.parse(raw);
+    // --- Robust JSON extraction -----------------------------------------
+    // 1) Strip ```json fences if present
+    let jsonString: string | null = null;
+    const fenceMatch = raw.match(/```json[\s\r\n]*([\s\S]*?)```/i);
+    if (fenceMatch) {
+      jsonString = fenceMatch[1];
+    } else {
+      // 2) Fallback: slice from first '{' to last '}'
+      const firstBrace = raw.indexOf('{');
+      const lastBrace = raw.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        jsonString = raw.slice(firstBrace, lastBrace + 1);
+      }
+    }
+
+    if (!jsonString) throw new Error('LLM output did not contain JSON');
+
+    const parsed = JSON.parse(jsonString);
+
+    // Debug log of the parsed structure before validation
+    logger.debug({ parsed }, 'Parsed JSON from discovery');
+
     const validationResult = DiscoveryResponseSchema.safeParse(parsed);
     
     if (!validationResult.success) {

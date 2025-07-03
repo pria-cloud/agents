@@ -339,11 +339,11 @@ export async function handleAppComposeIntent(
 
 // Define the structure of the application specification
 export interface AppSpec {
-  spec_version: string;
   description: string;
-  domain:string;
-  schema: Record<string, any>;
-  userActions: any[];
+  spec_version?: string;
+  domain?: string;
+  schema?: Record<string, any>;
+  userActions?: any[];
   isConfirmed?: boolean;
   workspace_id?: string;
   request_id?: string;
