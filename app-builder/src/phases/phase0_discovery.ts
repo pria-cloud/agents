@@ -1,93 +1,94 @@
-import { trace } from '@opentelemetry/api';
+import { generateWithGemini } from '../llmAdapter';
+import { z } from 'zod';
+import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
+import { Type } from '@google/genai';
 
-const tracer = trace.getTracer('app-builder');
+const logger = pino({
+  name: 'phase0-discovery',
+  level: process.env.LOG_LEVEL || 'info',
+});
+
+// Zod schema for the AppSpec
+const AppSpecSchema = z.object({
+    spec_version: z.string(),
+    description: z.string(),
+    domain: z.string(),
+    schema: z.record(z.any()), // A record of tables
+    userActions: z.array(z.record(z.any())), // An array of user actions
+    isConfirmed: z.boolean().optional().nullable(),
+});
+
+// Zod schema for the LLM's response
+const DiscoveryResponseSchema = z.object({
+    updatedAppSpec: AppSpecSchema,
+    responseToUser: z.string(),
+    isComplete: z.boolean(),
+});
+
+// Define the JSON schema for the Gemini API based on the Zod schema
+const GeminiSchema = {
+    type: Type.OBJECT,
+    properties: {
+        updatedAppSpec: {
+            type: Type.OBJECT,
+            properties: {
+                spec_version: { type: Type.STRING },
+                description: { type: Type.STRING },
+                domain: { type: Type.STRING },
+                schema: {}, // Allow any object
+                userActions: { type: Type.ARRAY, items: {} }, // Allow any object in the array
+                isConfirmed: { type: Type.BOOLEAN, nullable: true },
+            },
+            required: ['spec_version', 'description', 'domain', 'schema', 'userActions']
+        },
+        responseToUser: { type: Type.STRING },
+        isComplete: { type: Type.BOOLEAN },
+    },
+    required: ['updatedAppSpec', 'responseToUser', 'isComplete'],
+};
+
+// Helper function to assemble prompts from partials
+function assemblePrompt(partials: string[]): string {
+  return partials.map(partial => 
+    fs.readFileSync(path.resolve(__dirname, '../prompts/partials', partial), 'utf-8')
+  ).join('\\n\\n');
+}
 
 /**
- * Defines the contract for an adapter that can interact with a Large Language Model,
- * specifically for retrieving structured JSON responses.
+ * Phase 0: Product Discovery
+ * Iteratively builds an application specification through a conversation with the user.
  */
-export interface LlmAdapter {
-  getJSONResponse(promptTemplate: string, input: any): Promise<any>;
-}
+export async function runPhase0ProductDiscovery(userInput: string, currentSpec: any, conversationId: string): Promise<{updatedAppSpec: any, responseToUser: string, isComplete: boolean}> {
+  const partials = [
+    'instructions_discovery.md',
+    'rules_critical_output.md',
+  ];
+  const system = assemblePrompt(partials);
 
-// Define the structure of the application specification
-export interface AppSpec {
-  spec_version: string;
-  description: string;
-  domain: string;
-  schema: Record<string, any>;
-  userActions: any[];
-}
+  const prompt = `Here is the current state of our conversation. Please continue the product discovery based on my latest input.\n\nUserInput: "${userInput}"\n\nCurrentSpec: ${JSON.stringify(currentSpec, null, 2)}`;
 
-// Define the structure of the LLM's response
-export interface DiscoveryResponse {
-  updatedAppSpec: AppSpec;
-  responseToUser: string;
-  isComplete: boolean;
-}
+  logger.info({ event: 'phase.discovery.prompt', conversationId }, 'Prompt sent to LLM for product discovery');
+  const raw = await generateWithGemini({ prompt, system, responseSchema: GeminiSchema });
+  logger.info({ event: 'phase.discovery.raw_output', conversationId, raw }, 'Raw LLM output from discovery phase');
 
-/**
- * Runs the product discovery phase, interacting with the LLM to collaboratively
- * build an application specification with the user.
- *
- * @param userInput The latest input from the user.
- * @param currentSpec The current state of the application specification.
- * @param llmAdapter The adapter for interacting with the Large Language Model.
- * @returns A promise that resolves to the LLM's structured response.
- */
-export async function runPhase0ProductDiscovery(
-  userInput: string,
-  currentSpec: AppSpec | null,
-  llmAdapter: LlmAdapter
-): Promise<DiscoveryResponse> {
-  return await tracer.startActiveSpan(
-    'phase0_discovery.run',
-    async (span): Promise<DiscoveryResponse> => {
-      const promptTemplate = fs.readFileSync(
-        path.resolve(__dirname, 'prompts/phase0_discovery_prompt.md'),
-        'utf-8'
-      );
-
-      const initialSpec: AppSpec = {
-        spec_version: '1.0',
-        description: '',
-        domain: '',
-        schema: {},
-        userActions: [],
-      };
-
-      const specToUpdate = currentSpec || initialSpec;
-
-      // The prompt expects a JSON object with userInput and currentSpec
-      const promptInput = {
-        userInput,
-        currentSpec: specToUpdate,
-      };
-
-      const responseJson = await llmAdapter.getJSONResponse(promptTemplate, promptInput);
-
-      span.addEvent('phase0.discovery.llm.response_received');
-      span.setAttribute('llm.response.json', JSON.stringify(responseJson));
-
-      // It's crucial to validate the structure of the LLM's response
-      if (
-        !responseJson.updatedAppSpec ||
-        typeof responseJson.responseToUser !== 'string' ||
-        typeof responseJson.isComplete !== 'boolean'
-      ) {
-        throw new Error('LLM response is missing required fields for product discovery.');
-      }
-
-      const discoveryResponse: DiscoveryResponse = {
-        updatedAppSpec: responseJson.updatedAppSpec,
-        responseToUser: responseJson.responseToUser,
-        isComplete: responseJson.isComplete,
-      };
-
-      span.end();
-      return discoveryResponse;
+  try {
+    const parsed = JSON.parse(raw);
+    const validationResult = DiscoveryResponseSchema.safeParse(parsed);
+    
+    if (!validationResult.success) {
+      logger.error({ event: 'phase.discovery.validation_error', errors: validationResult.error.issues, data: parsed }, 'LLM response failed validation');
+      throw new Error('LLM response validation failed.');
     }
-  );
-} 
+
+    return validationResult.data;
+  } catch (error) {
+    logger.error({ event: 'phase.discovery.json_parse_error', raw, error }, 'Failed to parse JSON from LLM output in discovery phase');
+    return {
+      updatedAppSpec: currentSpec,
+      responseToUser: "I'm sorry, I encountered an issue processing that. Could you please try rephrasing your request?",
+      isComplete: false,
+    };
+  }
+}

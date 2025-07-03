@@ -1,4 +1,5 @@
-You are FORBIDDEN from generating code for any of the following files or files within these directories. They are part of the read-only scaffold.
+# CONTEXT: Forbidden Files & Directories
+You are FORBIDDEN from modifying or creating any of the following files. Assume they are part of the scaffold and are read-only.
 - `package.json`, `package-lock.json`
 - `next.config.js`, `postcss.config.js`, `tailwind.config.ts`
 - `tsconfig.json`, `tsconfig.node.json`, `tsconfig.app.json`
@@ -39,8 +40,8 @@ You are FORBIDDEN from generating code for any of the following files or files w
 - `components/ui/select.tsx`
 - `components/ui/separator.tsx`
 - `components/ui/sheet.tsx`
-- `components/ui/sidebar.tsx`
 - `components/ui/skeleton.tsx`
+- `components/ui/sidebar.tsx`
 - `components/ui/slider.tsx`
 - `components/ui/sonner.tsx`
 - `components/ui/switch.tsx`
@@ -48,8 +49,8 @@ You are FORBIDDEN from generating code for any of the following files or files w
 - `components/ui/tabs.tsx`
 - `components/ui/textarea.tsx`
 - `components/ui/toast.tsx`
-- `components/ui/toaster.tsx`
 - `components/ui/toggle-group.tsx`
 - `components/ui/toggle.tsx`
 - `components/ui/tooltip.tsx`
+- `components/ui/toaster.tsx`
 - `components/ui/use-toast.ts` 

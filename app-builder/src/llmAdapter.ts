@@ -1,15 +1,16 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, GenerationConfig } from '@google/genai';
 
 export interface GeminiRequest {
   prompt: string;
   system?: string;
   tools?: any[];
+  responseSchema?: any; // Allow passing a JSON schema object
 }
 
 // Use Gemini 2.5 Flash everywhere, per project requirements and official model name
 const GEMINI_MODEL = 'gemini-2.5-flash'; // See @/specifications/geminiSDK.md and Google GenAI docs
 
-export async function generateWithGemini({ prompt, system }: GeminiRequest): Promise<string> {
+export async function generateWithGemini({ prompt, system, responseSchema }: GeminiRequest): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
@@ -20,11 +21,23 @@ export async function generateWithGemini({ prompt, system }: GeminiRequest): Pro
   let lastError;
   while (attempt < maxAttempts) {
     try {
+      // Build the generation config dynamically
+      const config: GenerationConfig = {};
+      if (system) {
+        // @ts-ignore - The type definitions seem to be out of sync with the API docs
+        config.system = { parts: [{ text: system }] };
+      }
+      if (responseSchema) {
+        config.responseMimeType = "application/json";
+        config.responseSchema = responseSchema;
+      }
+
       const response = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        ...(system && { config: { systemInstruction: system } }),
+        ...(Object.keys(config).length > 0 && { config }),
       });
+      
       // .text is the concatenated text output
       return response.text ?? '';
     } catch (err: any) {
@@ -48,4 +61,4 @@ export async function generateWithGemini({ prompt, system }: GeminiRequest): Pro
     }
   }
   throw lastError || new Error('Gemini (Google GenAI SDK) request failed');
-} 
+}
