@@ -3,7 +3,6 @@ import { z } from 'zod';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
-import { Type } from '@google/genai';
 
 const logger = pino({
   name: 'phase1-plan',
@@ -17,25 +16,6 @@ const PlanResponseSchema = z.object({
     description: z.string(),
   })),
 });
-
-const GeminiSchema = {
-  type: Type.OBJECT,
-  properties: {
-    classification: { type: Type.STRING },
-    actionPlan: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          filePath: { type: Type.STRING },
-          description: { type: Type.STRING },
-        },
-        required: ['filePath', 'description'],
-      },
-    },
-  },
-  required: ['classification', 'actionPlan'],
-};
 
 // Helper function to assemble prompts from partials
 function assemblePrompt(partials: string[]): string {
@@ -52,16 +32,16 @@ export async function runPhase1Plan(appSpec: any): Promise<{ classification: str
   const partials = [
     'instructions_planning.md',
     'context_scaffold.md',
-    'context_supabase_patterns.md',
+    'context_supabase_patterns.md', // Provides context on tenancy for the planner
     'context_forbidden_files.md',
-    'rules_critical_output.md',
+    'rules_critical_output.md', // To ensure the planner outputs valid JSON
   ];
   const system = assemblePrompt(partials);
 
   const prompt = `Here is the application specification. Please generate the JSON plan as requested in the system prompt.\n\n${JSON.stringify(appSpec, null, 2)}`;
 
   logger.info({ event: 'phase.plan.prompt' }, 'Prompt sent to LLM in plan phase');
-  const raw = await generateWithGemini({ prompt, system, responseSchema: GeminiSchema });
+  const raw = await generateWithGemini({ prompt, system, responseSchema: PlanResponseSchema });
   logger.info({ event: 'phase.plan.raw_output', raw }, 'Raw LLM output from plan phase');
   
   try {

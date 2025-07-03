@@ -4,66 +4,76 @@ const path = require('path');
 
 const CONVERSATION_STATE_FILE = path.join(__dirname, 'conversation.json');
 
-// Get user input from command line arguments
+// --- Argument Parsing ---
 let userInput = process.argv.slice(2).join(' ').trim();
+let shouldReset = false;
 let isConfirmed = false;
+
+// Check for --reset flag
+if (userInput.includes('--reset')) {
+  shouldReset = true;
+  userInput = userInput.replace(/--reset/g, '').trim();
+}
 
 // Check for --confirm flag
 if (userInput.includes('--confirm')) {
   isConfirmed = true;
-  userInput = userInput.replace('--confirm', '').trim();
+  userInput = userInput.replace(/--confirm/g, '').trim();
 }
 
-if (!userInput) {
-  console.error('Error: Please provide your message as a command-line argument.');
-  console.log('Example: node send-intent.js "I want to build a blog"');
-  console.log('To reset the conversation, run: node send-intent.js --reset');
-  process.exit(1);
-}
-
-// Special command to reset the conversation state
-if (userInput === '--reset') {
+// Handle reset action
+if (shouldReset) {
   if (fs.existsSync(CONVERSATION_STATE_FILE)) {
     fs.unlinkSync(CONVERSATION_STATE_FILE);
     console.log('Conversation state has been reset.');
   } else {
     console.log('No active conversation to reset.');
   }
-  process.exit(0);
 }
 
-// Load previous state if it exists, otherwise initialize for a new conversation
+// Ensure there's user input to proceed
+if (!userInput) {
+  if (shouldReset) {
+    // If only --reset was provided, it's not an error.
+    process.exit(0);
+  }
+  console.error('Error: Please provide your message as a command-line argument.');
+  console.log('Example: node send-intent.js "I want to build a blog"');
+  process.exit(1);
+}
+
+
+// --- Conversation State ---
 let conversationState = {};
 if (fs.existsSync(CONVERSATION_STATE_FILE)) {
   try {
     const stateFileContent = fs.readFileSync(CONVERSATION_STATE_FILE, 'utf8');
-    // It might be an empty file if a reset just happened or it's the very first run
     if (stateFileContent) {
         conversationState = JSON.parse(stateFileContent);
     }
   } catch (e) {
-    console.error('Error reading conversation state file. Resetting state.', e);
-    // In case of corruption, delete the file to start fresh next time
+    console.error('Error reading conversation state file. Starting fresh.', e);
     fs.unlinkSync(CONVERSATION_STATE_FILE);
   }
 }
 
-// Construct the payload for the agent
+// --- Payload Construction ---
+// The agent expects these at the top level of the request body
 const payload = {
   intent: 'app.compose',
   trace_id: 'trace-e2e-test-01',
   jwt: 'e2e-test-jwt',
-  payload: {
-    userInput: userInput,
-    appSpec: conversationState.updatedAppSpec ? { ...conversationState.updatedAppSpec, isConfirmed } : null,
-    conversationId: conversationState.conversationId || null,
-    // These are needed for the test setup
-    workspace_id: 'ws-e2e-test',
-    request_id: `req-e2e-test-${Date.now()}`
-  }
+  userInput: userInput,
+  // The appSpec is nested within the saved state from the previous turn
+  appSpec: conversationState.updatedAppSpec ? { ...conversationState.updatedAppSpec, isConfirmed } : null,
+  conversationId: conversationState.conversationId || null,
+  workspace_id: 'ws-e2e-test',
+  request_id: `req-e2e-test-${Date.now()}`
 };
+
 const payloadString = JSON.stringify(payload);
 
+// --- HTTP Request ---
 const options = {
   hostname: 'localhost',
   port: 4001,
@@ -85,27 +95,28 @@ const req = http.request(options, (res) => {
   });
   res.on('end', () => {
     console.log('BODY:', responseBody);
-    console.log('No more data in response.');
 
     // Save the new state for the next turn
     if (res.statusCode === 200) {
         try {
             const responseJson = JSON.parse(responseBody);
-            if (responseJson.updatedAppSpec || responseJson.conversationId) {
+            // The agent's response IS the new state object
+            if (responseJson.updatedAppSpec) {
                 fs.writeFileSync(CONVERSATION_STATE_FILE, JSON.stringify(responseJson, null, 2));
                 console.log('\nConversation state saved.');
             }
         } catch(e) {
             console.error('\nCould not parse response JSON or save conversation state.', e);
         }
+    } else {
+        console.error(`\nRequest failed with status ${res.statusCode}. Conversation state not saved.`);
     }
   });
 });
 
 req.on('error', (e) => {
-  console.error(`problem with request: ${e.message}`);
+  console.error(`Problem with request: ${e.message}`);
 });
 
-// Write data to request body
 req.write(payloadString);
-req.end(); 
+req.end();

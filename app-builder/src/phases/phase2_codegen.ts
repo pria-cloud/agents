@@ -3,7 +3,6 @@ import { z } from 'zod';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
-import { Type } from '@google/genai';
 
 const logger = pino({
   name: 'phase2-codegen',
@@ -17,25 +16,6 @@ const CodegenResponseSchema = z.object({
     content: z.string(),
   })),
 });
-
-const GeminiSchema = {
-  type: Type.OBJECT,
-  properties: {
-    dependencies: { type: Type.ARRAY, items: { type: Type.STRING } },
-    files: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          filePath: { type: Type.STRING },
-          content: { type: Type.STRING },
-        },
-        required: ['filePath', 'content'],
-      },
-    },
-  },
-  required: ['dependencies', 'files'],
-};
 
 // Helper function to assemble prompts from partials
 function assemblePrompt(partials: string[]): string {
@@ -107,7 +87,7 @@ export async function runPhase2Codegen({
   }
 
   // Call the LLM
-  const raw = await generateWithGemini({ prompt, system, responseSchema: GeminiSchema });
+  const raw = await generateWithGemini({ prompt, system, responseSchema: CodegenResponseSchema });
   logger.info({ event: 'phase.codegen.raw_output', raw }, 'Raw LLM output from codegen phase');
   
   // The output should be a single JSON object

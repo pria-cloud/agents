@@ -7,19 +7,27 @@ exports.runPhaseReview = runPhaseReview;
 const llmAdapter_1 = require("../llmAdapter");
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-function extractPromptsFromMarkdown(markdown) {
-    const sysMatch = markdown.match(/## System Prompt\n```([\s\S]*?)```/);
-    const userMatch = markdown.match(/## User Prompt Template\n```([\s\S]*?)```/);
-    return {
-        system: sysMatch ? sysMatch[1].trim() : '',
-        user: userMatch ? userMatch[1].trim() : '',
-    };
+const pino_1 = __importDefault(require("pino"));
+const logger = (0, pino_1.default)({
+    name: 'phase-review',
+    level: process.env.LOG_LEVEL || 'info',
+});
+// Helper function to assemble prompts from partials
+function assemblePrompt(partials) {
+    return partials.map(partial => fs_1.default.readFileSync(path_1.default.resolve(__dirname, '../prompts/partials', partial), 'utf-8')).join('\n\n');
 }
 async function runPhaseReview(files, schema) {
-    let promptMd = fs_1.default.readFileSync(path_1.default.resolve(__dirname, './prompts/phase_review_prompt.md'), 'utf-8');
-    // Inject the schema into the prompt template
-    promptMd = promptMd.replace('{schema}', JSON.stringify(schema, null, 2));
-    const system = promptMd; // The entire markdown is now the system prompt
+    const partials = [
+        'instructions_review.md',
+        'context_scaffold.md',
+        'context_supabase_patterns.md',
+        'context_forbidden_files.md',
+        'rules_critical_schema.md',
+        'rules_critical_output.md',
+        'rules_general_quality.md',
+    ];
+    let system = assemblePrompt(partials);
+    system = system.replace('{schema}', JSON.stringify(schema, null, 2));
     const results = [];
     for (const file of files) {
         const userPrompt = `You are the PRIA Code Reviewer. Your task is to analyze the following generated file for quality, correctness, and adherence to the system prompt's rules.
@@ -29,33 +37,22 @@ Review the following file for correctness, completeness, and adherence to the PR
 File: ${file.filePath}
 
 Content:
-
+\`\`\`
 ${file.content}
-`;
-        const response = await (0, llmAdapter_1.generateWithGemini)({ prompt: userPrompt, system });
-        let raw;
-        if (typeof response === 'string') {
-            raw = response;
-        }
-        else if (response && typeof response === 'object') {
-            try {
-                raw = JSON.stringify(response);
-            }
-            catch {
-                raw = String(response);
-            }
-        }
-        else {
-            raw = String(response);
-        }
+\`\`\``;
+        logger.info({ event: 'phase.review.prompt', filePath: file.filePath }, 'Sending file for review');
+        const raw = await (0, llmAdapter_1.generateWithGemini)({ prompt: userPrompt, system });
         // Remove markdown code block wrappers if present
-        raw = raw.replace(/^```json[\r\n]+|^```[\r\n]+|```$/gim, '').trim();
+        const cleanedRaw = raw.replace(/^\`\`\`(json)?[\r\n]+|\`\`\`$/gim, '').trim();
         try {
-            const parsed = JSON.parse(raw);
+            const parsed = JSON.parse(cleanedRaw);
             results.push({ filePath: file.filePath, pass: !!parsed.pass, feedback: parsed.feedback || '' });
+            logger.info({ event: 'phase.review.result', filePath: file.filePath, pass: parsed.pass }, 'File review completed.');
         }
         catch {
-            results.push({ filePath: file.filePath, pass: false, feedback: 'Review LLM output was not valid JSON: ' + raw });
+            const feedback = 'Review LLM output was not valid JSON: ' + cleanedRaw;
+            results.push({ filePath: file.filePath, pass: false, feedback });
+            logger.error({ event: 'phase.review.invalid_json', filePath: file.filePath, json: cleanedRaw }, feedback);
         }
     }
     return results;
