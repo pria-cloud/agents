@@ -16,6 +16,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { trace, Span } from '@opentelemetry/api';
 import { mcp_supabase_generate_typescript_types } from './mcp_client';
+import fetch from 'node-fetch';
 
 const logger = pino({
   name: 'app-builder',
@@ -52,10 +53,12 @@ async function main() {
 
   // Start HTTP server to receive intents
   const app = express();
-  app.use(express.json());
+  // Respect JSON_LIMIT env var (default 25mb)
+  const jsonLimit = process.env.JSON_LIMIT || '25mb';
+  app.use(express.json({ limit: jsonLimit }));
 
   app.post('/intent', async (req: Request, res: Response) => {
-    const { intent, trace_id, jwt } = req.body;
+    const { intent, trace_id, jwt, skip_github = false } = req.body;
     logger.info({ event: 'intent.received', intent, trace_id }, 'Received intent');
     // Start a root span for the intent
     const tracer = trace.getTracer('app-builder');
@@ -71,7 +74,7 @@ async function main() {
 
         let result;
         if (intent === 'app.compose') {
-          result = await handleAppComposeIntent(payload, trace_id, jwt, span);
+          result = await handleAppComposeIntent({ ...payload, skip_github }, trace_id, jwt, span);
           res.status(200).json({ ok: true, trace_id, ...result });
         } else if (intent === 'app.preview') {
           // This is a stub for a potential preview intent
@@ -164,6 +167,28 @@ async function writeAppFromScaffold(
   logger.info({ event: 'scaffold.write.complete' }, 'Finished writing generated app from scaffold.');
 }
 
+// Helper to push progress updates to the A2A-router SSE endpoint
+async function sendProgress(
+  conversationId: string | undefined,
+  phase: string,
+  percent: number,
+  message: string,
+  status: 'in_progress' | 'completed' | 'error' = 'in_progress'
+) {
+  if (!conversationId) return;
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (process.env.A2A_API_KEY) headers['x-api-key'] = process.env.A2A_API_KEY;
+    await fetch(`${process.env.A2A_ROUTER_URL}/a2a/progress`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ conversationId, phase, percent, message, status }),
+    });
+  } catch (err) {
+    logger.warn({ event: 'progress.send.error', err }, 'Failed to send progress update');
+  }
+}
+
 // Handler for app.compose intents
 export async function handleAppComposeIntent(
   requestBody: any,
@@ -173,7 +198,7 @@ export async function handleAppComposeIntent(
 ) {
   logger.info({ event: 'handleAppComposeIntent.entry', requestBody }, 'Entering app compose handler');
   const tracer = trace.getTracer('app-builder');
-  const { userInput, conversationId } = requestBody;
+  const { userInput, conversationId, skip_github } = requestBody;
   let incomingSpec = requestBody.appSpec;
 
   // Phase 0: Product Discovery (Conversational)
@@ -219,6 +244,9 @@ export async function handleAppComposeIntent(
   const appSpec: AppSpec = incomingSpec;
   logger.info({ event: 'phase.discovery.confirmed', appSpec }, 'Product discovery complete and confirmed by user.');
 
+  // Send initial progress update
+  await sendProgress(conversationId, 'plan', 0, 'Planning application');
+
   // MCP Integration: Fetch dynamic context before generation
   let dbSchemaTypes = '';
   try {
@@ -248,7 +276,11 @@ export async function handleAppComposeIntent(
     let actionPlan = planResult.actionPlan;
     logger.info({ event: 'phase.plan.complete', actionPlan });
 
+    // Send progress update
+    await sendProgress(conversationId, 'plan', 20, 'Plan complete');
+
     // Phase 2: Codegen
+    await sendProgress(conversationId, 'codegen', 25, 'Generating application code');
     const codegenResult = await runPhase2Codegen({
         actionPlan,
         brief: JSON.stringify(appSpec, null, 2),
@@ -258,11 +290,19 @@ export async function handleAppComposeIntent(
     const dependencies = codegenResult.dependencies;
     logger.info({ event: 'phase.codegen.complete', files: generatedFiles.map(f => f.filePath) });
     
+    // Send progress update
+    await sendProgress(conversationId, 'codegen', 60, 'Code generation complete');
+
     // Phase 3: Code Review – ensure each generated file follows guidelines
+    await sendProgress(conversationId, 'review', 65, 'Reviewing generated code');
     const reviewResults = await runPhaseReview(generatedFiles, appSpec);
     logger.info({ event: 'phase.review.complete', results: reviewResults }, 'Completed code review for generated files');
 
+    // Send progress update
+    await sendProgress(conversationId, 'review', 75, 'Review complete');
+
     // Phase 4: Test Generation
+    await sendProgress(conversationId, 'testgen', 80, 'Generating tests');
     const testFiles: { filePath: string; content: string }[] = [];
     for (const file of generatedFiles) {
       // A simple heuristic to decide if a file is a component that needs a test
@@ -280,14 +320,18 @@ export async function handleAppComposeIntent(
     }
     logger.info({ event: 'phase.testgen.complete', files: testFiles.map(f => f.filePath) });
 
+    // Send progress update
+    await sendProgress(conversationId, 'testgen', 90, 'Tests generated');
+
     // *** NEW: Write generated files to disk using the scaffold function ***
     const allGeneratedFiles = [...generatedFiles, ...testFiles];
+    await sendProgress(conversationId, 'scaffold', 95, 'Writing scaffold to disk');
     await writeAppFromScaffold(allGeneratedFiles, dependencies);
 
     // 4. Prepare schema and workflow sub-intents (stub) - This logic is removed as bestPracticeTemplate is gone
 
     let result: any = {};
-    if (TARGET_REPO && process.env.GITHUB_TOKEN) {
+    if (TARGET_REPO && process.env.GITHUB_TOKEN && !skip_github) {
       const branchName = `pria-app-builder-${Date.now()}`;
       try {
         await createBranch(TARGET_REPO, BASE_BRANCH, branchName);
@@ -305,31 +349,23 @@ export async function handleAppComposeIntent(
       }
     }
 
-    // 6. Return result
-    // Helper: Convert files array to legacy generatedCode/generatedComponents for test compatibility
-    function filesToLegacy(files: { filePath: string; content: string }[]) {
-      const generatedCode: Record<string, string> = {};
-      const generatedComponents: Record<string, string> = {};
-      for (const f of files) {
-        if (f.filePath.startsWith('app/') && f.filePath.endsWith('.tsx')) {
-          // e.g., app/Home.tsx or app/page.tsx
-          const name = f.filePath.split('/').pop()?.replace('.tsx', '') || f.filePath;
-          generatedCode[name] = f.content;
-        } else if (f.filePath.startsWith('components/') && f.filePath.endsWith('.tsx')) {
-          const name = f.filePath.split('/').pop()?.replace('.tsx', '') || f.filePath;
-          generatedComponents[name] = f.content;
-        }
-      }
-      return { generatedCode, generatedComponents };
-    }
-    const legacy = process.env.NODE_ENV === 'test' ? filesToLegacy(allGeneratedFiles) : {};
+    // Determine final message
+    const finalMessage = !skip_github
+      ? 'Application composition complete. A draft PR has been opened.'
+      : 'Application composition complete.';
+
+    await sendProgress(conversationId, 'completed', 100, finalMessage, 'completed');
+
     const endTime = Date.now();
     recordIntentLatency(endTime - startTime, labels);
+
     return {
       ...result,
       status: 'completed',
-      message: 'Application composition complete. A draft PR has been opened.',
-      generated_files: allGeneratedFiles.map(f => f.filePath),
+      message: finalMessage,
+      // New response schema includes full file objects and dependency list
+      files: allGeneratedFiles.map(f => ({ path: f.filePath, content: f.content })),
+      generated_files: allGeneratedFiles.map(f => f.filePath), // legacy field
       dependencies,
       compliance: null,
     };
@@ -338,6 +374,7 @@ export async function handleAppComposeIntent(
     logger.error({ event: 'app.compose.error', err: err?.message, stack: err?.stack, trace_id, context: { err } }, 'Error in app.compose workflow');
     recordError(labels);
     recordIntentLatency(endTime - startTime, labels);
+    await sendProgress(conversationId, 'error', 100, err?.message || 'Error', 'error');
     throw err;
   }
 }

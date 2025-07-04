@@ -1,17 +1,89 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction, RequestHandler } from 'express';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
+import compression from 'compression';
+import cors from 'cors';
 dotenv.config();
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 9999;
 const app = express();
-app.use(express.json());
+// Apply gzip compression and CORS (per backend implementation plan)
+app.use(compression());
+app.use(cors());
+
+// Respect JSON_LIMIT env var, default 25mb
+const jsonLimit = process.env.JSON_LIMIT || '25mb';
+app.use(express.json({ limit: jsonLimit }));
+
+// ---- API Key middleware ----
+const REQUIRED_API_KEY = process.env.A2A_API_KEY;
+const apiKeyMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+  if (!REQUIRED_API_KEY) return next(); // Auth disabled if key not set
+  const key = req.headers['x-api-key'];
+  if (key === REQUIRED_API_KEY) return next();
+  res.status(401).json({ ok: false, error: 'Unauthorized' });
+};
+app.use(apiKeyMiddleware);
 
 // In-memory registry of agents
 const agents: Record<string, any> = {};
 
 // In-memory cache for conversations
 const conversationCache: Record<string, any> = {};
+
+// ---- Progress Streaming (SSE) ----
+// Map of conversationId -> Set of Response objects (active SSE connections)
+const progressStreams: Record<string, Set<Response>> = {};
+
+// Open an SSE stream that clients can subscribe to for progress updates
+app.get('/a2a/stream/:conversationId', (req: Request, res: Response) => {
+  const { conversationId } = req.params;
+
+  // Set headers for SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.(); // In case compression is on
+
+  // Send an initial comment to keep connection alive
+  res.write(': connected\n\n');
+
+  // Track the response object so we can write to it later
+  if (!progressStreams[conversationId]) {
+    progressStreams[conversationId] = new Set();
+  }
+  progressStreams[conversationId].add(res);
+
+  // Clean up on client disconnect
+  req.on('close', () => {
+    progressStreams[conversationId].delete(res);
+  });
+});
+
+// Agent pushes progress updates here
+app.post('/a2a/progress', (req: Request, res: Response) => {
+  const update = req.body;
+  const { conversationId } = update || {};
+
+  if (!conversationId) {
+    res.status(400).json({ ok: false, error: 'Missing conversationId in progress update' });
+    return;
+  }
+
+  const subscribers = progressStreams[conversationId];
+  if (subscribers && subscribers.size > 0) {
+    const payload = `data: ${JSON.stringify(update)}\n\n`;
+    subscribers.forEach((stream) => stream.write(payload));
+
+    // Close streams automatically on completion or error
+    if (['completed', 'error'].includes(update.status)) {
+      subscribers.forEach((stream) => stream.end());
+      delete progressStreams[conversationId];
+    }
+  }
+
+  res.json({ ok: true });
+});
 
 // Register agent
 app.post('/agents/register', (req: Request, res: Response): void => {
