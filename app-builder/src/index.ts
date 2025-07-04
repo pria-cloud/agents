@@ -10,6 +10,7 @@ import { runPhase0ProductDiscovery } from './phases/phase0_discovery';
 import { runPhase1Plan } from './phases/phase1_plan';
 import { runPhase2Codegen } from './phases/phase2_codegen';
 import { runPhase4TestGen } from './phases/phase4_testgen';
+import { runPhaseReview } from './phases/phase_review';
 import pino from 'pino';
 import fs from 'fs-extra';
 import path from 'path';
@@ -257,6 +258,10 @@ export async function handleAppComposeIntent(
     const dependencies = codegenResult.dependencies;
     logger.info({ event: 'phase.codegen.complete', files: generatedFiles.map(f => f.filePath) });
     
+    // Phase 3: Code Review – ensure each generated file follows guidelines
+    const reviewResults = await runPhaseReview(generatedFiles, appSpec);
+    logger.info({ event: 'phase.review.complete', results: reviewResults }, 'Completed code review for generated files');
+
     // Phase 4: Test Generation
     const testFiles: { filePath: string; content: string }[] = [];
     for (const file of generatedFiles) {
