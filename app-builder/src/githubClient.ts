@@ -3,17 +3,22 @@ import axios from 'axios';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_API = 'https://api.github.com';
 
+// If token missing we operate in no-op mode
 if (!GITHUB_TOKEN) {
-  throw new Error('GITHUB_TOKEN not set');
+  // eslint-disable-next-line no-console
+  console.warn('GITHUB_TOKEN not set – GitHub functions will be skipped');
 }
 
-const headers = {
-  Authorization: `token ${GITHUB_TOKEN}`,
-  Accept: 'application/vnd.github.v3+json',
-};
+const headers = GITHUB_TOKEN
+  ? {
+      Authorization: `token ${GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github.v3+json',
+    }
+  : {} as any;
 
 // Create a new branch from baseBranch
 export async function createBranch(repo: string, baseBranch: string, newBranch: string) {
+  if (!GITHUB_TOKEN) return;
   // Get the latest commit SHA of the base branch
   const refRes = await axios.get(`${GITHUB_API}/repos/${repo}/git/ref/heads/${baseBranch}`, { headers });
   const sha = refRes.data.object.sha;
@@ -27,6 +32,7 @@ export async function createBranch(repo: string, baseBranch: string, newBranch: 
 
 // Commit multiple files to a branch
 export async function commitFiles(repo: string, branch: string, files: { path: string; content: any }[]) {
+  if (!GITHUB_TOKEN) return;
   // Get the latest commit SHA and tree SHA
   const refRes = await axios.get(`${GITHUB_API}/repos/${repo}/git/ref/heads/${branch}`, { headers });
   const latestCommitSha = refRes.data.object.sha;
@@ -88,6 +94,7 @@ export async function commitFiles(repo: string, branch: string, files: { path: s
 
 // Open a draft pull request
 export async function openDraftPR(repo: string, branch: string, title: string, body: string) {
+  if (!GITHUB_TOKEN) return '';
   const prRes = await axios.post(
     `${GITHUB_API}/repos/${repo}/pulls`,
     {
