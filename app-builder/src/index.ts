@@ -40,11 +40,13 @@ async function main() {
   // Register the agent with the A2A router
   try {
     console.log('Registering agent with A2A router at', process.env.A2A_ROUTER_URL);
+    const endpointUrl = process.env.APP_BUILDER_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : `http://localhost:${PORT}`);
+
     const regResult = await registerAgent({
       agent_name: 'App-Builder',
       version: 'v1.0.0',
       capabilities: ['app.compose', 'app.preview'],
-      endpoint_url: `http://localhost:${PORT}`,
+      endpoint_url: endpointUrl,
       supports_mcp: true,
     });
     console.log('Registration result:', regResult);
