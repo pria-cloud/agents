@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { registerAgent, sendIntent } from './a2aClient';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, Application } from 'express';
 import { generateWithGemini } from './llmAdapter';
 import { createBranch, commitFiles, openDraftPR } from './githubClient';
 import { launchPreview, ProjectFile } from './previewService';
@@ -17,6 +17,7 @@ import path from 'path';
 import { trace, Span } from '@opentelemetry/api';
 import { mcp_supabase_generate_typescript_types } from './mcp_client';
 import fetch from 'node-fetch';
+import type { Request as ExRequest, Response as ExResponse } from 'express';
 
 const logger = pino({
   name: 'app-builder',
@@ -31,6 +32,9 @@ console.log('App-Builder agent starting...');
 console.log('A2A_ROUTER_URL:', process.env.A2A_ROUTER_URL);
 
 startOtel().then(() => main());
+
+// For Vercel: hold a reference to the express app so we can export a handler
+let serverlessApp: Application | undefined;
 
 async function main() {
   // Register the agent with the A2A router
@@ -96,9 +100,14 @@ async function main() {
     });
   });
 
-  app.listen(PORT, () => {
-    logger.info({ event: 'startup', port: PORT }, `App-Builder agent listening on port ${PORT}`);
-  });
+  // Assign for serverless export
+  serverlessApp = app;
+
+  if (!process.env.VERCEL) {
+    app.listen(PORT, () => {
+      logger.info({ event: 'startup', port: PORT }, `App-Builder agent listening on port ${PORT}`);
+    });
+  }
 }
 
 // Add ensureDirSync helper
@@ -396,4 +405,13 @@ export interface DiscoveryResponse {
   updatedAppSpec: AppSpec;
   responseToUser: string;
   isComplete: boolean;
+}
+
+// ---- Vercel default export ----
+export default function handler(req: ExRequest, res: ExResponse) {
+  if (!serverlessApp) {
+    res.status(500).send('Server not initialised');
+    return;
+  }
+  return serverlessApp(req, res);
 }
