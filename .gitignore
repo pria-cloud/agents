@@ -51,4 +51,7 @@ jspm_packages/
 .next/
 
 # Mac system files
-.DS_Store 
+.DS_Store
+
+# app-builder/dist directory
+app-builder/dist 
