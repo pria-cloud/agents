@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import compression from 'compression';
 import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
 dotenv.config();
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 9999;
@@ -25,8 +26,60 @@ const apiKeyMiddleware: RequestHandler = (req: Request, res: Response, next: Nex
 };
 app.use(apiKeyMiddleware);
 
-// In-memory registry of agents
-const agents: Record<string, any> = {};
+// ---- Supabase Client ----
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.warn('[A2A] SUPABASE_URL / KEY not set – falling back to in-memory registry.');
+}
+
+const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+// In-memory cache of agent registry (populated from Supabase on demand)
+interface AgentRecord {
+  agent_name: string;
+  version?: string;
+  capabilities: string[];
+  endpoint_url: string;
+  supports_mcp?: boolean;
+  last_heartbeat_at?: string;
+}
+
+let agentCache: AgentRecord[] = [];
+let agentCacheExpires = 0;
+const AGENT_CACHE_TTL_MS = Number(process.env.AGENT_CACHE_TTL_MS || 30_000); // 30s default
+
+async function refreshAgentCache(force = false): Promise<void> {
+  if (!supabase) return; // Nothing to refresh if no client
+  if (!force && Date.now() < agentCacheExpires) return;
+
+  const sinceIso = new Date(Date.now() - 5 * 60 * 1000).toISOString(); // 5 min window
+  const { data, error } = await supabase
+    .from('agent_registry')
+    .select('*')
+    .gte('last_heartbeat_at', sinceIso);
+
+  if (error) {
+    console.error('[A2A] Failed to refresh agent cache', error);
+    return;
+  }
+
+  agentCache = data || [];
+  agentCacheExpires = Date.now() + AGENT_CACHE_TTL_MS;
+}
+
+async function findAgentForIntent(intent: string): Promise<AgentRecord | undefined> {
+  if (supabase) {
+    await refreshAgentCache();
+    return agentCache.find(a => a.capabilities?.includes(intent));
+  }
+  // Fallback to local cache if Supabase not configured
+  return Object.values(localAgents).find(a => a.capabilities?.includes(intent));
+}
+
+// In-memory registry (fallback only)
+const localAgents: Record<string, AgentRecord> = {}; // used when Supabase not configured
 
 // In-memory cache for conversations
 const conversationCache: Record<string, any> = {};
@@ -86,15 +139,40 @@ app.post('/a2a/progress', (req: Request, res: Response) => {
 });
 
 // Register agent
-app.post('/agents/register', (req: Request, res: Response): void => {
+app.post('/agents/register', async (req: Request, res: Response): Promise<void> => {
   const { agent_name, version, capabilities, endpoint_url, supports_mcp } = req.body;
+
   if (!agent_name || !capabilities || !endpoint_url) {
     res.status(400).json({ ok: false, error: 'Missing required fields' });
     return;
   }
-  agents[agent_name] = { agent_name, version, capabilities, endpoint_url, supports_mcp };
-  console.log(`[A2A] Registered agent: ${agent_name} at ${endpoint_url}`);
-  res.json({ ok: true, agent: agents[agent_name] });
+
+  const record: AgentRecord = {
+    agent_name,
+    version,
+    capabilities,
+    endpoint_url,
+    supports_mcp,
+    last_heartbeat_at: new Date().toISOString(),
+  };
+
+  if (supabase) {
+    try {
+      const { error } = await supabase.from('agent_registry').upsert(record, { onConflict: 'agent_name' });
+      if (error) throw error;
+      console.log(`[A2A] Upserted agent ${agent_name} into Supabase`);
+      // Refresh cache immediately so it includes the latest record
+      await refreshAgentCache(true);
+    } catch (err: any) {
+      console.error('[A2A] Failed to persist agent to Supabase', err);
+      res.status(500).json({ ok: false, error: 'Failed to save agent registration' });
+      return;
+    }
+  } else {
+    localAgents[agent_name] = record;
+  }
+
+  res.json({ ok: true, agent: record });
 });
 
 // Forward intent to the first capable agent
@@ -105,7 +183,7 @@ app.post('/a2a/intent', async (req: Request, res: Response): Promise<void> => {
     return;
   }
   // Find an agent that can handle this intent
-  const agent = Object.values(agents).find(a => a.capabilities.includes(intent));
+  const agent = await findAgentForIntent(intent);
   if (!agent) {
     res.status(404).json({ ok: false, error: 'No agent registered for this intent' });
     return;
