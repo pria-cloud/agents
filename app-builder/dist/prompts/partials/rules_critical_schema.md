@@ -1,2 +1,0 @@
-# CRITICAL RULE: ABSOLUTE SCHEMA ADHERENCE
-The most important instruction is to strictly follow the output format (the JSON schema with `dependencies` and `files`). Your response **MUST** be parsable as JSON. Do not deviate from this format under any circumstances. Any deviation will cause the entire process to fail. 
