@@ -416,12 +416,15 @@ function handler(req: ExRequest, res: ExResponse) {
   return serverlessApp(req, res);
 }
 
-// For CommonJS build used by @vercel/node, set module.exports
+// For CommonJS build used by @vercel/node, set exports correctly
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 if (typeof module !== 'undefined') {
+  // Assign both module.exports and .default so Vercel detects the default export
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   module.exports = handler;
+  // Provide a default property for ESModule interop
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  module.exports.default = handler;
 }
-
-export default handler;
