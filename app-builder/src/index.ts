@@ -408,10 +408,18 @@ export interface DiscoveryResponse {
 }
 
 // ---- Vercel default export ----
-export default function handler(req: ExRequest, res: ExResponse) {
+export function handler(req: ExRequest, res: ExResponse) {
   if (!serverlessApp) {
     res.status(500).send('Server not initialised');
     return;
   }
   return serverlessApp(req, res);
+}
+
+// For CommonJS build used by @vercel/node, set module.exports
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+if (typeof module !== 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  module.exports = handler;
 }
