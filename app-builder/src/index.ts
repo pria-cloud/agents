@@ -63,6 +63,11 @@ async function main() {
   const jsonLimit = process.env.JSON_LIMIT || '25mb';
   app.use(express.json({ limit: jsonLimit }));
 
+  // Health check endpoint
+  app.get('/healthz', (_req: Request, res: Response) => {
+    res.json({ ok: true, timestamp: new Date().toISOString() });
+  });
+
   app.post('/intent', async (req: Request, res: Response) => {
     const { intent, trace_id, jwt, skip_github = false } = req.body;
     logger.info({ event: 'intent.received', intent, trace_id }, 'Received intent');
