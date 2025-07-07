@@ -249,6 +249,8 @@ export async function handleAppComposeIntent(
 
     // If discovery is not complete, we await more user input.
     if (!discoveryResult.isComplete) {
+      // Emit progress so UI receives the prompt via SSE
+      await sendProgress(conversationId, 'discovery', 50, discoveryResult.responseToUser, 'in_progress');
       return {
         status: 'AWAITING_USER_INPUT',
         responseToUser: discoveryResult.responseToUser,
@@ -269,6 +271,8 @@ export async function handleAppComposeIntent(
         incomingSpec.isConfirmed = true;
     } else {
         // The user has NOT confirmed yet. Return the summary and wait for the 'yes'.
+        // Emit progress so UI receives the prompt via SSE
+        await sendProgress(conversationId, 'discovery', 50, discoveryResult.responseToUser, 'in_progress');
         return {
             status: 'AWAITING_USER_INPUT', 
             responseToUser: discoveryResult.responseToUser,
