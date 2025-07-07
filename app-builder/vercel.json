@@ -1,7 +1,7 @@
 {
   "version": 2,
   "builds": [
-    { "src": "src/index.ts", "use": "@vercel/node", "config": { "maxDuration": 300, "memory": 2048 } }
+    { "src": "src/index.ts", "use": "@vercel/node", "config": { "maxDuration": 900, "memory": 2048 } }
   ],
   "routes": [
     { "src": "/(.*)", "dest": "src/index.ts" }

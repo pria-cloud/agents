@@ -69,7 +69,28 @@ async function main() {
   });
 
   app.post('/intent', async (req: Request, res: Response) => {
+    const isBackground = req.headers['x-vercel-background'] === '1';
     const { intent, trace_id, jwt, skip_github = false } = req.body;
+
+    // If this is the foreground request running on Vercel, immediately enqueue a background invocation
+    if (!isBackground && process.env.VERCEL) {
+      try {
+        const selfUrl = `${req.protocol}://${req.headers.host}${req.originalUrl}`;
+        await fetch(selfUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
+          body: JSON.stringify(req.body),
+        });
+        res.status(202).json({ ok: true, status: 'queued' });
+        return;
+      } catch (err: any) {
+        logger.error({ event: 'enqueue.error', err }, 'Failed to enqueue background task');
+        res.status(500).json({ ok: false, error: 'Failed to enqueue background task' });
+        return;
+      }
+    }
+
+    // ---- Background invocation continues here ----
     logger.info({ event: 'intent.received', intent, trace_id }, 'Received intent');
     // Start a root span for the intent
     const tracer = trace.getTracer('app-builder');
