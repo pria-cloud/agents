@@ -62,14 +62,23 @@ function assemblePrompt(partials: string[]): string {
  * Phase 0: Product Discovery
  * Iteratively builds an application specification through a conversation with the user.
  */
-export async function runPhase0ProductDiscovery(userInput: string, currentSpec: any, conversationId: string): Promise<{updatedAppSpec: any, responseToUser: string, isComplete: boolean}> {
+export async function runPhase0ProductDiscovery(
+  userInput: string,
+  currentSpec: any,
+  conversationId: string,
+  history: Array<{ role: string; content: string }> = []
+): Promise<{updatedAppSpec: any, responseToUser: string, isComplete: boolean}> {
   const partials = [
     'instructions_discovery.md',
     'rules_critical_output.md',
   ];
   const system = assemblePrompt(partials);
 
-  const prompt = `Here is the current state of our conversation. Please continue the product discovery based on my latest input.\n\nUserInput: "${userInput}"\n\nCurrentSpec: ${JSON.stringify(currentSpec, null, 2)}`;
+  const historyBlock = history
+    .map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`)
+    .join('\n');
+
+  const prompt = `Here is the conversation so far:\n${historyBlock}\n\nCurrent user input: "${userInput}"\n\nCurrentSpec: ${JSON.stringify(currentSpec, null, 2)}\n\nPlease continue with product discovery and indicate if it is complete.`;
 
   logger.info({ event: 'phase.discovery.prompt', conversationId }, 'Prompt sent to LLM for product discovery');
   const raw = await generateWithGemini({ prompt, system });

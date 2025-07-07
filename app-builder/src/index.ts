@@ -76,7 +76,8 @@ async function main() {
     const discoveryResult: DiscoveryResponse = await runPhase0ProductDiscovery(
       userInput,
       incomingSpec,
-      conversationId ?? ''
+      conversationId ?? '',
+      body.history || []
     );
 
     // Not complete → need more user input
@@ -303,7 +304,8 @@ export async function handleAppComposeIntent(
     const discoveryResult: DiscoveryResponse = await runPhase0ProductDiscovery(
       userInput,
       incomingSpec,
-      conversationId ?? ''
+      conversationId ?? '',
+      requestBody.history || []
     );
 
     // If discovery is not complete, we await more user input.
