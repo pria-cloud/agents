@@ -97,6 +97,11 @@ async function main() {
       return { awaiting: false, confirmedSpec: incomingSpec } as const;
     }
 
+    // If caller explicitly set confirm flag, accept
+    if (body.confirm === true) {
+      return { awaiting: false, confirmedSpec: discoveryResult.updatedAppSpec } as const;
+    }
+
     // Need explicit yes
     const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
     return {
