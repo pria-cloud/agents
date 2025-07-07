@@ -68,20 +68,74 @@ async function main() {
     res.json({ ok: true, timestamp: new Date().toISOString() });
   });
 
+  // ---- Helper: synchronous discovery phase ----
+  async function runDiscoveryPhase(body: any, conversationId?: string) {
+    const { userInput } = body;
+    let incomingSpec = body.appSpec;
+
+    const discoveryResult: DiscoveryResponse = await runPhase0ProductDiscovery(
+      userInput,
+      incomingSpec,
+      conversationId ?? ''
+    );
+
+    // Not complete → need more user input
+    if (!discoveryResult.isComplete) {
+      const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
+      return {
+        awaiting: true,
+        responseToUser: discoveryResult.responseToUser,
+        updatedAppSpec: specForConfirmation,
+      } as const;
+    }
+
+    // Completed: check if user confirmed within same message
+    const positiveConfirmation = userInput?.toLowerCase().trim().match(/^(yes|proceed)/);
+    if (positiveConfirmation && incomingSpec) {
+      incomingSpec = discoveryResult.updatedAppSpec;
+      incomingSpec.isConfirmed = true;
+      return { awaiting: false, confirmedSpec: incomingSpec } as const;
+    }
+
+    // Need explicit yes
+    const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
+    return {
+      awaiting: true,
+      responseToUser: discoveryResult.responseToUser,
+      updatedAppSpec: specForConfirmation,
+    } as const;
+  }
+
   app.post('/intent', async (req: Request, res: Response) => {
     const isBackground = req.headers['x-vercel-background'] === '1';
     const { intent, trace_id, jwt, skip_github = false } = req.body;
 
     // If this is the foreground request running on Vercel, immediately enqueue a background invocation
     if (!isBackground && process.env.VERCEL) {
+      const conversationId = req.body.conversationId || `conv-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+      const discovery = await runDiscoveryPhase(req.body, conversationId);
+
+      if (discovery.awaiting) {
+        // Send progress so UI can show prompt
+        await sendProgress(conversationId, 'discovery', 50, discovery.responseToUser || '', 'in_progress');
+        res.status(200).json({
+          status: 'AWAITING_USER_INPUT',
+          responseToUser: discovery.responseToUser,
+          conversationId,
+          updatedAppSpec: discovery.updatedAppSpec,
+        });
+        return;
+      }
+
+      // Discovery confirmed immediately -> enqueue heavy phases
       try {
         const selfUrl = `${req.protocol}://${req.headers.host}${req.originalUrl}`;
         await fetch(selfUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
-          body: JSON.stringify(req.body),
+          body: JSON.stringify({ ...req.body, appSpec: discovery.confirmedSpec, conversationId }),
         });
-        res.status(202).json({ ok: true, status: 'queued' });
+        res.status(202).json({ ok: true, status: 'queued', conversationId });
         return;
       } catch (err: any) {
         logger.error({ event: 'enqueue.error', err }, 'Failed to enqueue background task');
@@ -244,13 +298,13 @@ export async function handleAppComposeIntent(
     const discoveryResult: DiscoveryResponse = await runPhase0ProductDiscovery(
       userInput,
       incomingSpec,
-      conversationId
+      conversationId ?? ''
     );
 
     // If discovery is not complete, we await more user input.
     if (!discoveryResult.isComplete) {
       // Emit progress so UI receives the prompt via SSE
-      await sendProgress(conversationId, 'discovery', 50, discoveryResult.responseToUser, 'in_progress');
+      await sendProgress(conversationId, 'discovery', 50, discoveryResult.responseToUser || '', 'in_progress');
       return {
         status: 'AWAITING_USER_INPUT',
         responseToUser: discoveryResult.responseToUser,
@@ -272,7 +326,7 @@ export async function handleAppComposeIntent(
     } else {
         // The user has NOT confirmed yet. Return the summary and wait for the 'yes'.
         // Emit progress so UI receives the prompt via SSE
-        await sendProgress(conversationId, 'discovery', 50, discoveryResult.responseToUser, 'in_progress');
+        await sendProgress(conversationId, 'discovery', 50, discoveryResult.responseToUser || '', 'in_progress');
         return {
             status: 'AWAITING_USER_INPUT', 
             responseToUser: discoveryResult.responseToUser,
