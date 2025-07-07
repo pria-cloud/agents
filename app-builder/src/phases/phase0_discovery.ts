@@ -81,28 +81,11 @@ export async function runPhase0ProductDiscovery(
   const prompt = `Here is the conversation so far:\n${historyBlock}\n\nCurrent user input: "${userInput}"\n\nCurrentSpec: ${JSON.stringify(currentSpec, null, 2)}\n\nPlease continue with product discovery and indicate if it is complete.`;
 
   logger.info({ event: 'phase.discovery.prompt', conversationId }, 'Prompt sent to LLM for product discovery');
-  const raw = await generateWithGemini({ prompt, system });
+  const raw = await generateWithGemini({ prompt, system, responseSchema: DiscoveryResponseSchema });
   logger.info({ event: 'phase.discovery.raw_output', conversationId, raw }, 'Raw LLM output from discovery phase');
 
   try {
-    // --- Robust JSON extraction -----------------------------------------
-    // 1) Strip ```json fences if present
-    let jsonString: string | null = null;
-    const fenceMatch = raw.match(/```json[\s\r\n]*([\s\S]*?)```/i);
-    if (fenceMatch) {
-      jsonString = fenceMatch[1];
-    } else {
-      // 2) Fallback: slice from first '{' to last '}'
-      const firstBrace = raw.indexOf('{');
-      const lastBrace = raw.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        jsonString = raw.slice(firstBrace, lastBrace + 1);
-      }
-    }
-
-    if (!jsonString) throw new Error('LLM output did not contain JSON');
-
-    const parsed = JSON.parse(jsonString);
+    const parsed = JSON.parse(raw);
 
     // Debug log of the parsed structure before validation
     logger.debug({ parsed }, 'Parsed JSON from discovery');
