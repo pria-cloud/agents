@@ -135,7 +135,9 @@ async function main() {
 
       // Discovery confirmed immediately -> enqueue heavy phases
       try {
-        const selfUrl = `${req.protocol}://${req.headers.host}${req.originalUrl}`;
+        const selfUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}/intent`
+          : `${req.protocol}://${req.headers.host}${req.originalUrl}`; // fallback for local/dev
         await fetch(selfUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
