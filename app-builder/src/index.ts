@@ -87,6 +87,7 @@ async function main() {
         awaiting: true,
         responseToUser: discoveryResult.responseToUser,
         updatedAppSpec: specForConfirmation,
+        needsConfirmation: true,
       } as const;
     }
 
@@ -109,6 +110,7 @@ async function main() {
       awaiting: true,
       responseToUser: discoveryResult.responseToUser,
       updatedAppSpec: specForConfirmation,
+      needsConfirmation: true,
     } as const;
   }
 

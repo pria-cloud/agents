@@ -55,7 +55,8 @@ Size limit: **25 MB**; clients should gzip (> fetch automatically handles).
 {
   "status": "AWAITING_USER_INPUT",
   "responseToUser": "Great – what categories do you need?",
-  "conversationId": "conv-abc123…"
+  "conversationId": "conv-abc123…",
+  "needsConfirmation": true   // show "Confirm" button in UI
 }
 
 // background job accepted (heavy phases running)
@@ -86,6 +87,7 @@ Field definitions:
 * `status` – `AWAITING_USER_INPUT` | `queued` | `in_progress` (SSE only) | `completed` | `error`.
 * `conversationId` – opaque string; include on every subsequent turn.
 * `responseToUser` – text to show in chat UI.
+* `needsConfirmation` – boolean present only when the spec is fully drafted and the user must explicitly approve proceeding to the build phase.
 * `files` – array of `{ path, content }`; present only on `completed`.
 * `dependencies` – npm package strings.
 * `github_pr_url` – optional convenience link.
@@ -150,7 +152,8 @@ graph TD
 1. **Boot WebContainer once** (`WebContainer.boot()`), reuse for the entire session.
 2. On every chat submission:
    1. `POST /a2a/intent` (see 3.1).
-   2. If `status === 'AWAITING_USER_INPUT'` ⇒ display `responseToUser` as the assistant's next message and wait for the user.
+   2. If `status === 'AWAITING_USER_INPUT'` ⇒ display `responseToUser`.
+       * If `needsConfirmation` is true, enable a **Confirm** button; clicking it should resend the same chat turn with `{ confirm: true }`.
    3. If `status === 'queued'` ⇒ immediately open/continue the SSE stream `/a2a/stream/:conversationId` and show a "building…" indicator. No other fields are present in this response.
    4. Progress events arrive over SSE (`status: 'in_progress'` with `phase`, `percent`, `message`).
    5. When a final SSE update comes with `status: 'completed'` (or the router later POSTs it synchronously):
