@@ -168,3 +168,24 @@ Clients may include extra fields in the **initial** request body:
 
 ### 9. Versioning
 This spec is **v1.0** – breaking changes will bump the minor version and update the `spec_version` header in agent responses. 
+
+## 10  2025-07 Background-Function Update (v1.1)
+The platform now runs the **discovery phase synchronously** and all heavy phases (plan → code-gen → review → tests) in a **Vercel Background Function**.  This introduces two behavioural changes that the front-end must handle.
+
+### 10.1  HTTP status codes
+| Phase                                   | Response from Router | Meaning                              |
+|-----------------------------------------|----------------------|--------------------------------------|
+| Discovery prompt needed                 | **200 OK**           | `status:"AWAITING_USER_INPUT"` body |
+| Discovery confirmed → heavy build enqueued | **202 Accepted**      | `status:"queued"` body             |
+| Build finished                          | **200 OK**           | `status:"completed"` + `files[]`    |
+| Error                                   | **500 / 4xx**        | `status:"error"`                   |
+
+### 10.2  Client-side deltas
+1. Treat **202** the same as the old long-poll start: open/keep the SSE stream and show "Building…".  Do **not** expect `files` in the 202 response.
+2. Success & error progress events are delivered _only_ via SSE—**not** the 202 body.
+3. The `phase` field in progress events now starts at `discovery` (50 %) and ends with `completed` (100 %).
+4. Timeouts: UI should allow up to **15 minutes** between 202 and the final `completed` event.
+
+### 10.3  Backward compatibility
+Clients written for the original fully-synchronous spec continue to work **unchanged** (they still receive the prompt via `responseToUser` and handle SSE). The only addition is handling HTTP **202**.
+
