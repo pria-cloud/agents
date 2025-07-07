@@ -3,7 +3,7 @@
   "functions": {
     "src/index.ts": {
       "runtime": "vercel-node@4",
-      "maxDuration": 900
+      "maxDuration": 300
     }
   },
   "routes": [
