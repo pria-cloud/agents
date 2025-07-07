@@ -54,11 +54,9 @@ async function refreshAgentCache(force = false): Promise<void> {
   if (!supabase) return; // Nothing to refresh if no client
   if (!force && Date.now() < agentCacheExpires) return;
 
-  const sinceIso = new Date(Date.now() - 5 * 60 * 1000).toISOString(); // 5 min window
   const { data, error } = await supabase
     .from('agent_registry')
-    .select('*')
-    .gte('last_heartbeat_at', sinceIso);
+    .select('*');
 
   if (error) {
     console.error('[A2A] Failed to refresh agent cache', error);
