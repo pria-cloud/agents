@@ -54,4 +54,7 @@ jspm_packages/
 .DS_Store
 
 # app-builder/dist directory
-app-builder/dist 
+app-builder/dist
+
+# a2a-router build output
+a2a-router/dist 
