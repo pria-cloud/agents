@@ -29,15 +29,22 @@ This document tells a browser-based client (e.g. a Next.js chat UI + WebContaine
 // first turn
 {
   "intent": "app.compose",
-  "userInput": "I want a budgeting tool that tracks expenses",
-  "trace_id": "<optional tracing UUID>"
+  "userInput": "I want a budgeting tool…",
+  "history": [],          // empty on first turn
+  "trace_id": "<optional>"
 }
 
 // subsequent turns
 {
   "intent": "app.compose",
-  "conversationId": "conv-abc123…",  // supplied by router in prior reply
-  "userInput": "Yes, proceed"
+  "conversationId": "conv-abc123…",
+  "userInput": "Yes, proceed",
+  "history": [               // all prior turns in order
+    { "role": "user",      "content": "I want a budgeting tool…" },
+    { "role": "assistant", "content": "Great! An expense…" }
+  ],
+  "appSpec": { … },         // latest updatedAppSpec from previous reply
+  "confirm": true           // set when user explicitly approves
 }
 ```
 Size limit: **25 MB**; clients should gzip (> fetch automatically handles).
@@ -141,53 +148,4 @@ graph TD
    3. If `status === 'completed'`:
       * For each element in `files`:
         * `fs.mkdir` parent directories (recursive).
-        * `fs.writeFile(path, content)`.
-      * Read `package.json`; merge `dependencies` (adding ^latest when no semver given); write back.
-      * Restart or (preferably) hot-reload the Next.js dev process.
-      * Set iframe `src` to the URL emitted by WebContainer `server-ready` event.
-3. Persist `conversationId` in component state.
-4. If `status === 'error'`, surface gracefully.
-
-### 6. Optional Flags
-Clients may include extra fields in the **initial** request body:
-| Field | Type | Description |
-|-------|------|-------------|
-| `skip_github` | boolean | `true` = agent skips branch/PR creation; speed boost for WebContainer preview |
-| `confirm` | boolean | For a *follow-up* request: `true` = user has explicitly confirmed the spec; skip the additional "Yes, proceed" round-trip and enqueue background build immediately |
-
-### 7. Error Codes
-| HTTP | Meaning | Client action |
-|------|---------|--------------|
-| 400  | Unsupported intent / missing fields | Fix request body |
-| 404  | No capable agent | Show "service unavailable" |
-| 500  | Internal failure (router or agent) | Retry / surface error |
-
-### 8. Security / Limits
-* Verify user input length (< 32k) before sending.
-* Do **not** run untrusted commands inside WebContainer.
-* Obey 25 MB JSON limit (router & agent).
-
-### 9. Versioning
-This spec is **v1.0** – breaking changes will bump the minor version and update the `spec_version` header in agent responses. 
-
-## 10  2025-07 Background-Function Update (v1.1)
-The platform now runs the **discovery phase synchronously** and all heavy phases (plan → code-gen → review → tests) in a **Vercel Background Function**.  This introduces two behavioural changes that the front-end must handle.
-
-### 10.1  HTTP status codes
-| Phase                                   | Response from Router | Meaning                              |
-|-----------------------------------------|----------------------|--------------------------------------|
-| Discovery prompt needed                 | **200 OK**           | `status:"AWAITING_USER_INPUT"` body |
-| Discovery confirmed → heavy build enqueued | **202 Accepted**      | `status:"queued"` body             |
-| Build finished                          | **200 OK**           | `status:"completed"` + `files[]`    |
-| Error                                   | **500 / 4xx**        | `status:"error"`                   |
-
-### 10.2  Client-side deltas
-1. Treat **202** the same as the old long-poll start: open/keep the SSE stream and show "Building…".  Do **not** expect `files` in the 202 response.
-2. Success & error progress events are delivered _only_ via SSE—**not** the 202 body.
-3. **Discovery gating rule** – The agent advances to the heavy build *only when* the discovery reply from the LLM contains `"isComplete": true` **and** the user confirms (chat text or `confirm:true`).  If `isComplete` is `false` the front-end must submit another turn with the updated `appSpec` until the LLM marks it complete.
-4. The `phase` field in progress events now starts at `discovery` (50 %) and ends with `completed` (100 %).
-5. Timeouts: UI should allow up to **15 minutes** between 202 and the final `completed` event.
-
-### 10.3  Backward compatibility
-Clients written for the original fully-synchronous spec continue to work **unchanged** (they still receive the prompt via `responseToUser` and handle SSE). The only addition is handling HTTP **202**.
-
+        * `

@@ -2,9 +2,8 @@
   "version": 2,
   "functions": {
     "src/index.ts": {
-      "runtime": "nodejs18.x",
-      "maxDuration": 900,
-      "memory": 2048
+      "runtime": "vercel-node@4",
+      "maxDuration": 900
     }
   },
   "routes": [
