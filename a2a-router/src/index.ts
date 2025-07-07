@@ -229,6 +229,11 @@ app.post('/a2a/intent', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// ---- Health Check ----
+app.get('/healthz', (_req: Request, res: Response) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
+
 app.listen(PORT, () => {
   console.log(`[A2A] Router listening on port ${PORT}`);
 }); 
