@@ -153,6 +153,7 @@ Clients may include extra fields in the **initial** request body:
 | Field | Type | Description |
 |-------|------|-------------|
 | `skip_github` | boolean | `true` = agent skips branch/PR creation; speed boost for WebContainer preview |
+| `confirm` | boolean | For a *follow-up* request: `true` = user has explicitly confirmed the spec; skip the additional "Yes, proceed" round-trip and enqueue background build immediately |
 
 ### 7. Error Codes
 | HTTP | Meaning | Client action |
