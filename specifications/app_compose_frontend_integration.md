@@ -184,8 +184,9 @@ The platform now runs the **discovery phase synchronously** and all heavy phases
 ### 10.2  Client-side deltas
 1. Treat **202** the same as the old long-poll start: open/keep the SSE stream and show "Building…".  Do **not** expect `files` in the 202 response.
 2. Success & error progress events are delivered _only_ via SSE—**not** the 202 body.
-3. The `phase` field in progress events now starts at `discovery` (50 %) and ends with `completed` (100 %).
-4. Timeouts: UI should allow up to **15 minutes** between 202 and the final `completed` event.
+3. **Discovery gating rule** – The agent advances to the heavy build *only when* the discovery reply from the LLM contains `"isComplete": true` **and** the user confirms (chat text or `confirm:true`).  If `isComplete` is `false` the front-end must submit another turn with the updated `appSpec` until the LLM marks it complete.
+4. The `phase` field in progress events now starts at `discovery` (50 %) and ends with `completed` (100 %).
+5. Timeouts: UI should allow up to **15 minutes** between 202 and the final `completed` event.
 
 ### 10.3  Backward compatibility
 Clients written for the original fully-synchronous spec continue to work **unchanged** (they still receive the prompt via `responseToUser` and handle SSE). The only addition is handling HTTP **202**.
