@@ -427,8 +427,13 @@ export async function handleAppComposeIntent(
 
     // *** NEW: Write generated files to disk using the scaffold function ***
     const allGeneratedFiles = [...generatedFiles, ...testFiles];
-    await sendProgress(conversationId, 'scaffold', 95, 'Writing scaffold to disk');
-    await writeAppFromScaffold(allGeneratedFiles, dependencies);
+    const runningOnVercel = Boolean(process.env.VERCEL);
+    if (!runningOnVercel) {
+      await sendProgress(conversationId, 'scaffold', 95, 'Writing scaffold to disk');
+      await writeAppFromScaffold(allGeneratedFiles, dependencies);
+    } else {
+      logger.info({ event: 'scaffold.skip', reason: 'Running on Vercel – filesystem is read-only' }, 'Skipping scaffold write on Vercel runtime');
+    }
 
     // 4. Prepare schema and workflow sub-intents (stub) - This logic is removed as bestPracticeTemplate is gone
 
