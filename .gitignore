@@ -57,4 +57,7 @@ jspm_packages/
 app-builder/dist
 
 # a2a-router build output
-a2a-router/dist 
+a2a-router/dist
+
+# app-builder generated app output
+app-builder/generated-app/ 
