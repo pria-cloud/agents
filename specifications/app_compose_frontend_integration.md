@@ -51,10 +51,16 @@ Size limit: **25 MB**; clients should gzip (> fetch automatically handles).
 
 #### 3.2 Router → Front-end response
 ```
-// during discovery
+// during discovery (LLM needs more info)
 {
   "status": "AWAITING_USER_INPUT",
   "responseToUser": "Great – what categories do you need?",
+  "conversationId": "conv-abc123…"
+}
+
+// background job accepted (heavy phases running)
+{
+  "status": "queued",
   "conversationId": "conv-abc123…"
 }
 
@@ -77,7 +83,7 @@ Size limit: **25 MB**; clients should gzip (> fetch automatically handles).
 ```
 
 Field definitions:
-* `status` – `AWAITING_USER_INPUT` | `completed` | `error`.
+* `status` – `AWAITING_USER_INPUT` | `queued` | `in_progress` (SSE only) | `completed` | `error`.
 * `conversationId` – opaque string; include on every subsequent turn.
 * `responseToUser` – text to show in chat UI.
 * `files` – array of `{ path, content }`; present only on `completed`.
@@ -144,8 +150,16 @@ graph TD
 1. **Boot WebContainer once** (`WebContainer.boot()`), reuse for the entire session.
 2. On every chat submission:
    1. `POST /a2a/intent` (see 3.1).
-   2. Show `responseToUser` text in chat.
-   3. If `status === 'completed'`:
+   2. If `status === 'AWAITING_USER_INPUT'` ⇒ display `responseToUser` as the assistant's next message and wait for the user.
+   3. If `status === 'queued'` ⇒ immediately open/continue the SSE stream `/a2a/stream/:conversationId` and show a "building…" indicator. No other fields are present in this response.
+   4. Progress events arrive over SSE (`status: 'in_progress'` with `phase`, `percent`, `message`).
+   5. When a final SSE update comes with `status: 'completed'` (or the router later POSTs it synchronously):
       * For each element in `files`:
         * `fs.mkdir` parent directories (recursive).
-        * `
+        * `fs.writeFile` to create the file.
+        * `WebContainer.mount` to mount the file.
+        * `WebContainer.start` to start the container.
+        * `WebContainer.stop` to stop the container.
+        * `WebContainer.unmount` to unmount the file.
+        * `WebContainer.destroy` to destroy the container.
+
