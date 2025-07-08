@@ -80,12 +80,21 @@ export async function runPhase0ProductDiscovery(
     // Robust JSON extraction -----------------------------------
     let jsonString: string | null = null;
 
-    // 1) Strip ```json fences if present
+    // 1) Try to capture content between the first ```json ... ``` fence
     const fenceMatch = raw.match(/```json[\s\r\n]*([\s\S]*?)```/i);
     if (fenceMatch) {
       jsonString = fenceMatch[1];
-    } else {
-      // 2) Fallback: slice from first '{' to last '}'
+      try {
+        const parsedAttempt = JSON.parse(jsonString);
+        jsonString = JSON.stringify(parsedAttempt); // normalise
+      } catch (_err) {
+        // The fence capture was incomplete (e.g. nested ``` inside README). Fall back.
+        jsonString = null;
+      }
+    }
+
+    // 2) Fallback: slice from the first '{' to the last '}'; handles outputs with nested fences
+    if (!jsonString) {
       const firstBrace = raw.indexOf('{');
       const lastBrace = raw.lastIndexOf('}');
       if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
