@@ -31,7 +31,16 @@ const BASE_BRANCH = 'main';
 console.log('App-Builder agent starting...');
 console.log('A2A_ROUTER_URL:', process.env.A2A_ROUTER_URL);
 
-startOtel().then(() => main());
+// Initialise OTEL and the Express app exactly once, then reuse for all requests.
+const initPromise = (async () => {
+  try {
+    await startOtel();
+  } catch (err) {
+    console.error('OTEL init failed', err);
+    // Continue startup even if metrics fail to avoid taking down the function.
+  }
+  await main();
+})();
 
 // For Vercel: hold a reference to the express app so we can export a handler
 let serverlessApp: Application | undefined;
@@ -510,7 +519,10 @@ export interface DiscoveryResponse {
 }
 
 // ---- Vercel default export ----
-function handler(req: ExRequest, res: ExResponse) {
+async function handler(req: ExRequest, res: ExResponse) {
+  // Ensure the one-time initialisation has completed before handling the request.
+  await initPromise;
+
   if (!serverlessApp) {
     res.status(500).send('Server not initialised');
     return;
