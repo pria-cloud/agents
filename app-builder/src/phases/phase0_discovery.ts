@@ -11,15 +11,16 @@ const logger = pino({
 
 // Zod schema for the AppSpec
 const AppSpecSchema = z.object({
-    // description remains required as a minimal field
-    description: z.string(),
-    // The following fields are optional during the iterative discovery process
-    spec_version: z.string().optional(),
-    domain: z.string().optional(),
-    schema: z.object({}).passthrough().optional(),
-    userActions: z.array(z.object({}).passthrough()).optional(),
-    isConfirmed: z.boolean().optional().nullable(),
-});
+    // description is helpful but not strictly required in early discovery iterations
+    description: z.string().optional(),
+    /*
+     * Allow the spec to include any other keys while the user and LLM iterate.
+     * We intentionally keep this schema very loose so that minor field-name
+     * variations (e.g. `appDescription` vs `description`) do not cause the
+     * entire discovery phase to reject the response. Down-stream phases work
+     * with the spec generically, so strict validation is unnecessary here.
+     */
+}).passthrough();
 
 // Zod schema for the LLM's response
 const DiscoveryResponseSchema = z.object({
@@ -34,16 +35,7 @@ const GeminiSchema = {
   properties: {
     updatedAppSpec: {
       type: 'object',
-      // allow any additional keys inside updatedAppSpec
       additionalProperties: true,
-      properties: {
-        spec_version: { type: 'string' },
-        description: { type: 'string' },
-        domain: { type: 'string' },
-        // schema and userActions are intentionally omitted to avoid empty properties errors
-        isConfirmed: { type: 'boolean', nullable: true },
-      },
-      required: ['spec_version', 'description', 'domain'],
     },
     responseToUser: { type: 'string' },
     isComplete: { type: 'boolean' },
