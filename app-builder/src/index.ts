@@ -91,12 +91,12 @@ async function main() {
 
     // Not complete → need more user input
     if (!discoveryResult.isComplete) {
-      const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
+      const specDraft = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
       return {
         awaiting: true,
         responseToUser: discoveryResult.responseToUser,
-        updatedAppSpec: specForConfirmation,
-        needsConfirmation: true,
+        updatedAppSpec: specDraft,
+        needsConfirmation: false,
       } as const;
     }
 
@@ -145,6 +145,7 @@ async function main() {
           responseToUser: discovery.responseToUser,
           conversationId,
           updatedAppSpec: discovery.updatedAppSpec,
+          needsConfirmation: discovery.needsConfirmation,
         });
         return;
       }
@@ -365,6 +366,7 @@ export async function handleAppComposeIntent(
             status: 'AWAITING_USER_INPUT', 
             responseToUser: discoveryResult.responseToUser,
             updatedAppSpec: specForConfirmation, 
+            needsConfirmation: true,
         };
     }
   }
