@@ -32,28 +32,10 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
     // Build a corresponding JSON schema for the GenAI client based on known response shapes.
     let googleSchema: any | null = null;
 
-    // Heuristic: discovery schema has updatedAppSpec key
-    const maybeShape = (responseSchema as any)?._def?.shape();
-    if (maybeShape && maybeShape.updatedAppSpec && maybeShape.isComplete && maybeShape.responseToUser) {
-      googleSchema = {
-        type: Type.OBJECT,
-        properties: {
-          updatedAppSpec: {
-            type: Type.OBJECT,
-            properties: {
-              description: { type: Type.STRING },
-            },
-          },
-          responseToUser: { type: Type.STRING },
-          isComplete: { type: Type.BOOLEAN },
-        },
-        required: ['updatedAppSpec', 'responseToUser', 'isComplete'],
-        propertyOrdering: ['updatedAppSpec', 'responseToUser', 'isComplete'],
-      };
-    }
+    const maybeShape = (responseSchema as any)?._def?.shape?.();
 
-    // Heuristic: codegen schema has dependencies and files keys
-    if (!googleSchema && maybeShape && maybeShape.dependencies && maybeShape.files) {
+    // Only support the Codegen schema for direct structured output. Discovery spec is too open-ended for strict JSON schema
+    if (maybeShape && maybeShape.dependencies && maybeShape.files) {
       googleSchema = {
         type: Type.OBJECT,
         properties: {
