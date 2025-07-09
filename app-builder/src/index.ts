@@ -156,22 +156,22 @@ async function main() {
       }
 
       // Discovery confirmed immediately -> enqueue heavy phases
-      try {
-        const selfUrl = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}/intent`
-          : `${req.protocol}://${req.headers.host}${req.originalUrl}`; // fallback for local/dev
-        await fetch(selfUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
-          body: JSON.stringify({ ...req.body, appSpec: discovery.confirmedSpec, conversationId }),
-        });
-        res.status(202).json({ ok: true, status: 'queued', conversationId });
-        return;
-      } catch (err: any) {
+      const selfUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}/intent`
+        : `${req.protocol}://${req.headers.host}${req.originalUrl}`; // local/dev fallback
+
+      // Fire-and-forget: do NOT await the background run, just kick it off.
+      fetch(selfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
+        body: JSON.stringify({ ...req.body, appSpec: discovery.confirmedSpec, conversationId }),
+      }).catch((err) => {
         logger.error({ event: 'enqueue.error', err }, 'Failed to enqueue background task');
-        res.status(500).json({ ok: false, error: 'Failed to enqueue background task' });
-        return;
-      }
+      });
+
+      // Immediately tell the caller the job is queued so the UI can open the SSE stream.
+      res.status(202).json({ ok: true, status: 'queued', conversationId });
+      return;
     }
 
     // ---- Background invocation continues here ----
