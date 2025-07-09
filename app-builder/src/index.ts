@@ -82,6 +82,11 @@ async function main() {
     const { userInput } = body;
     let incomingSpec = body.appSpec;
 
+    // If the spec has already been confirmed, bypass the LLM entirely.
+    if (incomingSpec?.isConfirmed) {
+      return { awaiting: false, confirmedSpec: incomingSpec } as const;
+    }
+
     const discoveryResult: DiscoveryResponse = await runPhase0ProductDiscovery(
       userInput,
       incomingSpec,
