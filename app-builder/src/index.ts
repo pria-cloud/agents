@@ -127,8 +127,13 @@ async function main() {
     const isBackground = req.headers['x-vercel-background'] === '1';
     const { intent, trace_id, jwt, skip_github = false } = req.body;
 
-    // If this is the foreground request running on Vercel, immediately enqueue a background invocation
-    if (!isBackground && process.env.VERCEL) {
+    // If this is the initial (foreground) request, immediately enqueue a background invocation so
+    // the caller gets a quick 202/queued response. We previously did this only on Vercel because
+    // `x-vercel-background` performs the queuing automatically. For local/dev environments we
+    // replicate the same behaviour by posting to our own /intent endpoint with the background
+    // header. The actual work then happens in the second request, while the first one returns
+    // immediately.
+    if (!isBackground) {
       const conversationId = req.body.conversationId || `conv-${Date.now()}-${Math.random().toString(36).substring(2)}`;
       const discovery = await runDiscoveryPhase(req.body, conversationId);
 
@@ -165,6 +170,15 @@ async function main() {
 
     // ---- Background invocation continues here ----
     logger.info({ event: 'intent.received', intent, trace_id }, 'Received intent');
+    // If this is the background invocation, immediately notify the router that processing has begun
+    if (isBackground) {
+      try {
+        await sendProgress(req.body.conversationId, 'queued', 0, 'Build job started', 'in_progress');
+      } catch (err) {
+        logger.warn({ event: 'progress.initial_queued.error', err }, 'Failed to send initial queued progress');
+      }
+    }
+
     // Start a root span for the intent
     const tracer = trace.getTracer('app-builder');
     await tracer.startActiveSpan(intent || 'unknown_intent', async (span: Span) => {
