@@ -302,7 +302,7 @@ async function sendProgress(
   conversationId: string | undefined,
   phase: string,
   percent: number,
-  message: string,
+  message: string | Record<string, any>,
   status: 'in_progress' | 'completed' | 'error' = 'in_progress'
 ) {
   if (!conversationId) return;
@@ -495,7 +495,12 @@ export async function handleAppComposeIntent(
       ? 'Application composition complete. A draft PR has been opened.'
       : 'Application composition complete.';
 
-    await sendProgress(conversationId, 'completed', 100, finalMessage, 'completed');
+    await sendProgress(conversationId, 'completed', 100, {
+      message: finalMessage,
+      files: allGeneratedFiles.map(f => ({ path: f.filePath, content: f.content })),
+      dependencies,
+      github_pr_url: result.github_pr_url ?? null,
+    }, 'completed');
 
     const endTime = Date.now();
     recordIntentLatency(endTime - startTime, labels);
