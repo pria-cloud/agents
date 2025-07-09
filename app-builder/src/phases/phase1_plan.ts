@@ -43,9 +43,29 @@ export async function runPhase1Plan(appSpec: any): Promise<{ classification: str
   logger.info({ event: 'phase.plan.prompt' }, 'Prompt sent to LLM in plan phase');
   const raw = await generateWithGemini({ prompt, system, responseSchema: PlanResponseSchema });
   logger.info({ event: 'phase.plan.raw_output', raw }, 'Raw LLM output from plan phase');
-  
+
+  // --- Robust JSON extraction (mirrors discovery phase) ---
+  function extractJson(text: string): string | null {
+    // 1) ```json fenced block
+    const fence = text.match(/```json[\s\r\n]*([\s\S]*?)```/i);
+    if (fence) {
+      try {
+        JSON.parse(fence[1]);
+        return fence[1];
+      } catch {}
+    }
+    // 2) First { ... last }
+    const first = text.indexOf('{');
+    const last = text.lastIndexOf('}');
+    if (first !== -1 && last !== -1 && last > first) {
+      return text.slice(first, last + 1);
+    }
+    return null;
+  }
+
   try {
-    const parsed = JSON.parse(raw);
+    const jsonString = extractJson(raw) ?? raw;
+    const parsed = JSON.parse(jsonString);
     const validationResult = PlanResponseSchema.safeParse(parsed);
     if (!validationResult.success) {
       logger.error({ event: 'phase.plan.validation_error', errors: validationResult.error.issues, data: parsed }, 'LLM response failed validation');
@@ -53,7 +73,7 @@ export async function runPhase1Plan(appSpec: any): Promise<{ classification: str
     }
     return validationResult.data;
   } catch (error) {
-    logger.error({ event: 'phase.plan.invalid_json', json: raw, error }, 'Failed to parse valid JSON plan from LLM output');
+    logger.error({ event: 'phase.plan.invalid_json', raw, error }, 'Failed to parse JSON from LLM output in plan phase');
     return {
       classification: 'error',
       actionPlan: [{
