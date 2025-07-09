@@ -29,41 +29,76 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
    *    ai-sdk helper which worked previously.
    */
   if (responseSchema) {
-    try {
-      const aiDirect = new GoogleGenAI({ apiKey });
-      const directResponse: any = await aiDirect.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: combinedPrompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
+    // Build a corresponding JSON schema for the GenAI client based on known response shapes.
+    let googleSchema: any | null = null;
+
+    // Heuristic: discovery schema has updatedAppSpec key
+    const maybeShape = (responseSchema as any)?._def?.shape();
+    if (maybeShape && maybeShape.updatedAppSpec && maybeShape.isComplete && maybeShape.responseToUser) {
+      googleSchema = {
+        type: Type.OBJECT,
+        properties: {
+          updatedAppSpec: {
             type: Type.OBJECT,
             properties: {
-              updatedAppSpec: {
-                type: Type.OBJECT,
-                // Provide at least one property ("description") to satisfy OBJECT requirements.
-                properties: {
-                  description: { type: Type.STRING },
-                },
-              },
-              responseToUser: { type: Type.STRING },
-              isComplete: { type: Type.BOOLEAN },
+              description: { type: Type.STRING },
             },
-            required: ['updatedAppSpec', 'responseToUser', 'isComplete'],
-            propertyOrdering: ['updatedAppSpec', 'responseToUser', 'isComplete'],
+          },
+          responseToUser: { type: Type.STRING },
+          isComplete: { type: Type.BOOLEAN },
+        },
+        required: ['updatedAppSpec', 'responseToUser', 'isComplete'],
+        propertyOrdering: ['updatedAppSpec', 'responseToUser', 'isComplete'],
+      };
+    }
+
+    // Heuristic: codegen schema has dependencies and files keys
+    if (!googleSchema && maybeShape && maybeShape.dependencies && maybeShape.files) {
+      googleSchema = {
+        type: Type.OBJECT,
+        properties: {
+          dependencies: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+          },
+          files: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                filePath: { type: Type.STRING },
+                content: { type: Type.STRING },
+              },
+              required: ['filePath', 'content'],
+              propertyOrdering: ['filePath', 'content'],
+            },
           },
         },
-      });
+        required: ['dependencies', 'files'],
+        propertyOrdering: ['dependencies', 'files'],
+      };
+    }
 
-      const jsonText = typeof directResponse.text === 'function' ? directResponse.text() : directResponse.text;
-      if (typeof jsonText === 'string' && jsonText.trim().startsWith('{')) {
-        return jsonText;
+    if (googleSchema) {
+      try {
+        const aiDirect = new GoogleGenAI({ apiKey });
+        const directResponse: any = await aiDirect.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: combinedPrompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: googleSchema,
+          },
+        });
+
+        const jsonText = typeof directResponse.text === 'function' ? directResponse.text() : directResponse.text;
+        if (typeof jsonText === 'string' && jsonText.trim().startsWith('{')) {
+          return jsonText;
+        }
+        throw new Error('Direct structured call did not return JSON');
+      } catch (directErr) {
+        console.warn('Gemini direct structured output failed, falling back to ai-sdk generateObject', directErr);
       }
-      // If the response was somehow not JSON, throw to trigger fallback.
-      throw new Error('Direct structured call did not return JSON');
-    } catch (directErr) {
-      console.warn('Gemini direct structured output failed, falling back to ai-sdk generateObject', directErr);
-      // continue to fallback below
     }
   }
 
