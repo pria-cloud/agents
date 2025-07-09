@@ -39,10 +39,18 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              updatedAppSpec: { type: Type.OBJECT },
+              updatedAppSpec: {
+                type: Type.OBJECT,
+                // Provide at least one property to satisfy OBJECT requirements; allow extra via additionalProperties below.
+                properties: {
+                  description: { type: Type.STRING },
+                },
+                additionalProperties: true as any,
+              },
               responseToUser: { type: Type.STRING },
               isComplete: { type: Type.BOOLEAN },
             },
+            required: ['updatedAppSpec', 'responseToUser', 'isComplete'],
             propertyOrdering: ['updatedAppSpec', 'responseToUser', 'isComplete'],
           },
         },
