@@ -73,7 +73,13 @@ export async function runPhase0ProductDiscovery(
   const prompt = `Here is the conversation so far:\n${historyBlock}\n\nCurrent user input: "${userInput}"\n\nCurrentSpec: ${JSON.stringify(currentSpec, null, 2)}\n\nPlease continue with product discovery and indicate if it is complete.`;
 
   logger.info({ event: 'phase.discovery.prompt', conversationId }, 'Prompt sent to LLM for product discovery');
-  const raw = await generateWithGemini({ prompt, system, responseSchema: DiscoveryResponseSchema });
+  let raw: string;
+  try {
+    raw = await generateWithGemini({ prompt, system, responseSchema: DiscoveryResponseSchema });
+  } catch (err: any) {
+    logger.warn({ event: 'phase.discovery.structured_fail', err: err?.message }, 'Structured generation failed, falling back to plain text');
+    raw = await generateWithGemini({ prompt, system });
+  }
   logger.info({ event: 'phase.discovery.raw_output', conversationId, raw }, 'Raw LLM output from discovery phase');
 
   try {
