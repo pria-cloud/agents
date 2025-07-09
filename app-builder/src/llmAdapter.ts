@@ -41,11 +41,10 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
             properties: {
               updatedAppSpec: {
                 type: Type.OBJECT,
-                // Provide at least one property to satisfy OBJECT requirements; allow extra via additionalProperties below.
+                // Provide at least one property ("description") to satisfy OBJECT requirements.
                 properties: {
                   description: { type: Type.STRING },
                 },
-                additionalProperties: true as any,
               },
               responseToUser: { type: Type.STRING },
               isComplete: { type: Type.BOOLEAN },
