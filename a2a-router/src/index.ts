@@ -82,12 +82,20 @@ const localAgents: Record<string, AgentRecord> = {}; // used when Supabase not c
 // In-memory cache for conversations
 const conversationCache: Record<string, any> = {};
 
-// ---- Progress Streaming (SSE) ----
-// Map of conversationId -> Set of Response objects (active SSE connections)
-const progressStreams: Record<string, Set<Response>> = {};
+// ---- Progress Streaming (SSE via Supabase Realtime) ----
+// If Supabase is available we broadcast progress events over a Realtime channel named after the conversationId.
+// Each HTTP subscriber opens its own channel subscription and pipes events to the SSE socket.
+// When Supabase is not configured we fall back to an in-memory map as before (useful for local dev).
+
+const progressStreams: Record<string, Set<Response>> = {}; // fallback only
+
+// Helper to get a channel name that is safe and unique
+function progressChannelName(conversationId: string) {
+  return `progress:${conversationId}`;
+}
 
 // Open an SSE stream that clients can subscribe to for progress updates
-app.get('/a2a/stream/:conversationId', (req: Request, res: Response) => {
+app.get('/a2a/stream/:conversationId', async (req: Request, res: Response) => {
   const { conversationId } = req.params;
 
   // Set headers for SSE
@@ -99,20 +107,44 @@ app.get('/a2a/stream/:conversationId', (req: Request, res: Response) => {
   // Send an initial comment to keep connection alive
   res.write(': connected\n\n');
 
-  // Track the response object so we can write to it later
-  if (!progressStreams[conversationId]) {
-    progressStreams[conversationId] = new Set();
-  }
-  progressStreams[conversationId].add(res);
+  if (supabase) {
+    // Supabase Realtime path
+    const channelName = progressChannelName(conversationId);
+    const channel = supabase.channel(channelName);
 
-  // Clean up on client disconnect
-  req.on('close', () => {
-    progressStreams[conversationId].delete(res);
-  });
+    channel.on('broadcast', { event: 'update' }, ({ payload }: { payload: any }) => {
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      if (payload?.status === 'completed' || payload?.status === 'error') {
+        // close SSE and unsubscribe
+        res.end();
+        channel.unsubscribe();
+      }
+    });
+
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log(`[A2A] SSE client subscribed to ${channelName}`);
+      }
+    });
+
+    req.on('close', () => {
+      channel.unsubscribe();
+    });
+  } else {
+    // In-memory fallback (single-process dev run)
+    if (!progressStreams[conversationId]) {
+      progressStreams[conversationId] = new Set();
+    }
+    progressStreams[conversationId].add(res);
+
+    req.on('close', () => {
+      progressStreams[conversationId].delete(res);
+    });
+  }
 });
 
 // Agent pushes progress updates here
-app.post('/a2a/progress', (req: Request, res: Response) => {
+app.post('/a2a/progress', async (req: Request, res: Response) => {
   const update = req.body;
   const { conversationId } = update || {};
 
@@ -121,15 +153,20 @@ app.post('/a2a/progress', (req: Request, res: Response) => {
     return;
   }
 
-  const subscribers = progressStreams[conversationId];
-  if (subscribers && subscribers.size > 0) {
-    const payload = `data: ${JSON.stringify(update)}\n\n`;
-    subscribers.forEach((stream) => stream.write(payload));
+  if (supabase) {
+    const channelName = progressChannelName(conversationId);
+    // Broadcast without creating a persistent subscription
+    await supabase.channel(channelName).send({ type: 'broadcast', event: 'update', payload: update });
+  } else {
+    const subscribers = progressStreams[conversationId];
+    if (subscribers && subscribers.size > 0) {
+      const payload = `data: ${JSON.stringify(update)}\n\n`;
+      subscribers.forEach((stream) => stream.write(payload));
 
-    // Close streams automatically on completion or error
-    if (['completed', 'error'].includes(update.status)) {
-      subscribers.forEach((stream) => stream.end());
-      delete progressStreams[conversationId];
+      if (['completed', 'error'].includes(update.status)) {
+        subscribers.forEach((stream) => stream.end());
+        delete progressStreams[conversationId];
+      }
     }
   }
 
