@@ -2,6 +2,9 @@ import { generateObject, generateText } from 'ai';
 import { google, createGoogleGenerativeAI } from '@ai-sdk/google';
 import { ZodType } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
+import pino from 'pino';
+
+const logger = pino({ name: 'llm-adapter', level: process.env.LOG_LEVEL || 'info' });
 
 export interface GeminiRequest {
   prompt: string;
@@ -22,6 +25,10 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
   const combinedPrompt = system ? `${system}\n\n---\n\n${prompt}` : prompt;
+
+  // Start timing for diagnostics
+  const callStart = Date.now();
+  logger.info({ event: 'llm.call.start', hasSchema: !!responseSchema, promptChars: prompt.length, systemChars: system?.length || 0 }, 'Gemini request initiated');
 
   /*
    * 1) Try the official Google GenAI client with a responseSchema → returns pure JSON.
@@ -74,12 +81,13 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
         });
 
         const jsonText = typeof directResponse.text === 'function' ? directResponse.text() : directResponse.text;
+        logger.info({ event: 'llm.call.success', path: 'genai.direct', durationMs: Date.now() - callStart, responseChars: (typeof jsonText === 'string' ? jsonText.length : 0) }, 'Gemini direct structured call succeeded');
         if (typeof jsonText === 'string' && jsonText.trim().startsWith('{')) {
           return jsonText;
         }
         throw new Error('Direct structured call did not return JSON');
       } catch (directErr) {
-        console.warn('Gemini direct structured output failed, falling back to ai-sdk generateObject', directErr);
+        logger.warn({ event: 'llm.call.error', path: 'genai.direct', durationMs: Date.now() - callStart, error: (directErr as any)?.message }, 'Gemini direct structured output failed – falling back');
       }
     }
   }
@@ -95,13 +103,15 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
         schema: responseSchema,
         prompt: combinedPrompt,
       });
+      logger.info({ event: 'llm.call.success', path: 'ai-sdk.object', durationMs: Date.now() - callStart, responseChars: JSON.stringify(object).length }, 'Gemini ai-sdk structured call succeeded');
       return JSON.stringify(object);
     }
 
     const { text } = await generateText({ model, prompt: combinedPrompt });
+    logger.info({ event: 'llm.call.success', path: 'ai-sdk.text', durationMs: Date.now() - callStart, responseChars: text.length }, 'Gemini ai-sdk text call succeeded');
     return text;
   } catch (err: any) {
-    console.error('Gemini (AI SDK) error', err);
+    logger.error({ event: 'llm.call.error', path: 'ai-sdk', durationMs: Date.now() - callStart, error: err?.message }, 'Gemini (AI SDK) error');
     throw err;
   }
 }
