@@ -24,7 +24,7 @@ Follow these rules rigorously.
 
 You MUST reply with **only** the JSON object described below. *Do NOT* wrap the JSON in code fences, markdown, or any explanatory text. This is a hard requirement so that the front-end can safely parse your output.
 
-Your JSON object must contain the following keys (DO NOT exceed 500 characters in `description`):
+Your JSON object must contain the following keys (DO NOT exceed 500 characters in `description`, **no raw line-breaks inside any string; use `\n` escape if you need a newline**):
 1.  `updatedAppSpec` (object)
 2.  `responseToUser` (string)
 3.  `isComplete` (boolean)

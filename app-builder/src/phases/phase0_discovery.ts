@@ -3,6 +3,7 @@ import { z } from 'zod';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
+import { jsonrepair } from 'jsonrepair';
 
 const logger = pino({
   name: 'phase0-discovery',
@@ -110,7 +111,19 @@ export async function runPhase0ProductDiscovery(
 
     if (!jsonString) throw new Error('LLM output did not contain JSON');
 
-    const parsed = JSON.parse(jsonString);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonString);
+    } catch (firstErr) {
+      // Attempt to repair common issues (unescaped newlines, missing braces)
+      try {
+        const repaired = jsonrepair(jsonString);
+        parsed = JSON.parse(repaired);
+        logger.warn({ event: 'phase.discovery.json_repair', note: 'Repaired malformed JSON using jsonrepair' });
+      } catch (repairErr) {
+        throw firstErr; // propagate original
+      }
+    }
 
     // Debug log of the parsed structure before validation
     logger.debug({ parsed }, 'Parsed JSON from discovery');

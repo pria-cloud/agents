@@ -93,33 +93,42 @@ Field definitions:
 * `github_pr_url` – optional convenience link.
 
 #### 3.3 Progress Stream (Server-Sent Events)
-A long-running build can emit real-time progress updates via SSE.
+Long-running phases (plan → scaffold) emit real-time progress updates via **SSE**.
 
-#### Subscribe (front-end → router)
-```
-GET /a2a/stream/:conversationId
-Accept: text/event-stream
-```
-The router keeps the HTTP connection open and streams `data:` events until `status` becomes `completed` or `error`.
+The front-end **may open the stream as soon as it knows the `conversationId`** – usually right after the very first `/a2a/intent` response. If the build has not yet entered a heavy phase the socket will stay silent (apart from an initial `: connected` keep-alive comment) until the App-Builder agent posts its first update. Keeping one persistent `EventSource` per conversation is therefore safe and recommended.
 
-#### Push update (agent → router)
-```
-POST /a2a/progress
+##### Event payload
+Each `data:` line is the JSON object that the App-Builder POSTed to `/a2a/progress` and has this shape:
+
+```json
 {
   "conversationId": "conv-abc123…",
-  "status": "in_progress",      // in_progress | completed | error
+  "status": "in_progress",      // queued | in_progress | completed | error
   "phase": "codegen",           // discovery | plan | codegen | review | testgen | scaffold | completed | error
-  "percent": 60,                 // 0-100 (rough estimate)
+  "percent": 60,                 // integer 0-100 (rough estimate)
   "message": "Code generation complete"
 }
 ```
-The router fan-outs the JSON (as text) to every SSE subscriber:
-```
-data: {"conversationId":"conv-abc123…","status":"in_progress",…}
 
+When `status` becomes `completed` or `error` the router automatically closes the stream.
 
+###### Subscribe (front-end → router)
+```http
+GET /a2a/stream/:conversationId
+Accept: text/event-stream
 ```
-When `status` equals `completed` or `error` the router closes the stream.
+
+###### Push update (agent → router)
+```http
+POST /a2a/progress
+{
+  "conversationId": "conv-abc123…",
+  "status": "in_progress",
+  "phase": "codegen",
+  "percent": 60,
+  "message": "Code generation complete"
+}
+```
 
 #### Front-end handling
 ```ts
@@ -127,7 +136,7 @@ const src = new EventSource(`/a2a/stream/${conversationId}`);
 src.onmessage = (e) => {
   const update = JSON.parse(e.data);
   // update progress bar / log
-  if (update.status !== 'in_progress') src.close();
+  if (update.status === 'completed' || update.status === 'error') src.close();
 };
 ```
 
@@ -154,7 +163,7 @@ graph TD
    1. `POST /a2a/intent` (see 3.1).
    2. If `status === 'AWAITING_USER_INPUT'` ⇒ display `responseToUser`.
        * If `needsConfirmation` is true, enable a **Confirm** button; clicking it should resend the same chat turn with `{ confirm: true }`.
-   3. If `status === 'queued'` ⇒ immediately open/continue the SSE stream `/a2a/stream/:conversationId` and show a "building…" indicator. No other fields are present in this response.
+   3. As soon as you have a `conversationId` (typically when `status` is either `AWAITING_USER_INPUT` or `queued`) make sure an `EventSource` is listening on `/a2a/stream/:conversationId`. Opening it early is harmless; it will simply stay idle until the first progress update arrives.
    4. Progress events arrive over SSE (`status: 'in_progress'` with `phase`, `percent`, `message`).
    5. When a final SSE update comes with `status: 'completed'` (or the router later POSTs it synchronously):
       * For each element in `files`:

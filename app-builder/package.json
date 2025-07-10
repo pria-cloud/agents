@@ -40,7 +40,8 @@
     "yaml": "^2.4.2",
     "fs-extra": "^11.1.1",
     "tailwindcss": "^3.4.4",
-    "@google/genai": "^0.2.0"
+    "@google/genai": "^0.2.0",
+    "jsonrepair": "^3.0.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
