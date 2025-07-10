@@ -94,20 +94,27 @@ async function main() {
       body.history || []
     );
 
-    // Not complete → need more user input
-    if (!discoveryResult.isComplete) {
-      const specDraft = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
-      return {
-        awaiting: true,
-        responseToUser: discoveryResult.responseToUser,
-        updatedAppSpec: specDraft,
-        needsConfirmation: false,
-      } as const;
+    // Discovery indicates completion – require explicit user confirmation.
+    const positiveConfirmation = userInput?.toLowerCase().trim().match(/^(yes|proceed)/);
+    if (positiveConfirmation && incomingSpec) {
+      incomingSpec = discoveryResult.updatedAppSpec;
+      incomingSpec.isConfirmed = true;
+      return { awaiting: false, confirmedSpec: incomingSpec } as const;
     }
 
-    // Completed: treat completion as implicit confirmation (auto-continue)
-    const confirmedSpec = { ...discoveryResult.updatedAppSpec, isConfirmed: true };
-    return { awaiting: false, confirmedSpec } as const;
+    // If caller explicitly set confirm flag, accept automatically
+    if (body.confirm === true) {
+      return { awaiting: false, confirmedSpec: { ...discoveryResult.updatedAppSpec, isConfirmed: true } } as const;
+    }
+
+    // Otherwise return draft and ask for confirmation
+    const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
+    return {
+      awaiting: true,
+      responseToUser: discoveryResult.responseToUser,
+      updatedAppSpec: specForConfirmation,
+      needsConfirmation: true,
+    } as const;
   }
 
   app.post('/intent', async (req: Request, res: Response) => {
