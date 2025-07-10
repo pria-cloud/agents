@@ -64,6 +64,7 @@ You MUST use the following patterns to mock our Supabase and Server Action depen
 2.  **Render Check:** The primary goal is to render the component (`render(<MyComponent />)`) and assert that it doesn't crash. A simple check like `expect(screen.getByText(/some text/i)).toBeInTheDocument()` is sufficient.
 3.  **Mocking is Mandatory:** Any component with external dependencies (Server Actions, Supabase calls) MUST have those dependencies mocked.
 4.  **Raw Code Only:** Your entire response must be ONLY the raw, complete code for the test file.
+5.  **NO MARKDOWN FENCES:** Do **NOT** wrap the code in ```typescript or any triple back-tick fences.  Return the plain source text only.
 
 You must follow these operational rules:
 - Respond ONLY with the raw code for the test file.
