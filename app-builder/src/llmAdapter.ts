@@ -41,8 +41,26 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
 
     const maybeShape = (responseSchema as any)?._def?.shape?.();
 
-    // Only support the Codegen schema for direct structured output. Discovery spec is too open-ended for strict JSON schema
-    if (maybeShape && maybeShape.dependencies && maybeShape.files) {
+    // Discovery schema: updatedAppSpec / responseToUser / isComplete
+    if (maybeShape && maybeShape.updatedAppSpec && maybeShape.responseToUser && maybeShape.isComplete) {
+      googleSchema = {
+        type: Type.OBJECT,
+        properties: {
+          updatedAppSpec: {
+            type: Type.OBJECT,
+            properties: { description: { type: Type.STRING } },
+            required: ["description"],
+          },
+          responseToUser: { type: Type.STRING },
+          isComplete: { type: Type.BOOLEAN },
+        },
+        required: ["updatedAppSpec", "responseToUser", "isComplete"],
+        propertyOrdering: ["updatedAppSpec", "responseToUser", "isComplete"],
+      };
+    }
+
+    // Codegen schema: dependencies / files
+    if (!googleSchema && maybeShape && maybeShape.dependencies && maybeShape.files) {
       googleSchema = {
         type: Type.OBJECT,
         properties: {

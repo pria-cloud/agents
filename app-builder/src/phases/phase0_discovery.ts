@@ -122,7 +122,14 @@ export async function runPhase0ProductDiscovery(
       throw new Error('LLM response validation failed.');
     }
 
-    return validationResult.data;
+    const clean = validationResult.data;
+    const desc = (clean.updatedAppSpec as any)?.description;
+    if (typeof desc === 'string' && desc.length > 1000) {
+      (clean.updatedAppSpec as any).description = desc.slice(0, 1000) + '…';
+      logger.info({ event: 'phase.discovery.truncate', originalLen: desc.length }, 'Truncated oversized description field in discovery spec');
+    }
+
+    return clean;
   } catch (error) {
     logger.error({ event: 'phase.discovery.json_parse_error', raw, error }, 'Failed to parse JSON from LLM output in discovery phase');
     return {
