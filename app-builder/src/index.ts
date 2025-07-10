@@ -248,6 +248,12 @@ async function writeAppFromScaffold(
   }
   logger.info({ event: 'scaffold.copied' }, 'Copied scaffold templates to output directory.');
 
+  // Helper to remove ``` fences possibly added by the LLM
+  const stripCodeFence = (src: string): string => {
+    const match = src.match(/^```[a-z0-9]*\n([\s\S]*?)\n```$/i);
+    return match ? match[1] : src;
+  };
+
   // 2. Write AI-generated files
   for (const file of generatedFiles) {
     const cleanPath = file.filePath.replace(/^"|"$/g, '');
@@ -260,7 +266,8 @@ async function writeAppFromScaffold(
 
     const fullPath = path.join(outDir, cleanPath);
     ensureDirSync(path.dirname(fullPath));
-    fs.writeFileSync(fullPath, file.content, 'utf8');
+    const cleanContent = stripCodeFence(file.content);
+    fs.writeFileSync(fullPath, cleanContent, 'utf8');
     logger.info({ event: 'disk.write.file', filePath: fullPath }, `Wrote AI-generated file`);
   }
 
@@ -319,6 +326,12 @@ export async function handleAppComposeIntent(
   const tracer = trace.getTracer('app-builder');
   const { userInput, conversationId, skip_github } = requestBody;
   let incomingSpec = requestBody.appSpec;
+
+  // If caller explicitly confirms, mark spec as confirmed immediately.
+  if (requestBody.confirm === true && incomingSpec && !incomingSpec.isConfirmed) {
+    incomingSpec.isConfirmed = true;
+    logger.info({ event: 'intent.confirm_shortcut' }, 'Spec marked confirmed via confirm flag');
+  }
 
   // Phase 0: Product Discovery (Conversational)
   // If the spec is not yet confirmed by the user, we are in the discovery phase.
