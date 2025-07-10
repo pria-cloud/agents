@@ -144,26 +144,27 @@ async function main() {
         return;
       }
 
-      // ----- New inline (in-process) background execution -----
+      // ----- Enqueue heavy phases via self-invocation (works on Vercel & local) -----
+      const agentSelfUrl = process.env.AGENT_PUBLIC_URL ??
+        (process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}/intent`
+          : `${req.protocol}://${req.headers.host}${req.originalUrl}`);
+
+      // Send initial progress so the UI can open the SSE stream right away
       try {
-        // Notify UI via SSE first so it can open the stream right away
         await sendProgress(conversationId, 'queued', 0, 'Build job started', 'in_progress');
       } catch (err) {
         logger.warn({ event: 'progress.initial_queued.error', err }, 'Failed to send initial queued progress');
       }
 
-      // Fire-and-forget heavy phases without spawning a second HTTP request
-      (async () => {
-        try {
-          await handleAppComposeIntent(
-            { ...req.body, appSpec: discovery.confirmedSpec, conversationId, skip_github },
-            trace_id,
-            jwt
-          );
-        } catch (err) {
-          logger.error({ event: 'inline_background.error', err }, 'Error during inline background processing');
-        }
-      })();
+      // Fire-and-forget background HTTP request (serverless safe)
+      fetch(agentSelfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
+        body: JSON.stringify({ ...req.body, appSpec: discovery.confirmedSpec, conversationId }),
+      }).catch((err) => {
+        logger.error({ event: 'enqueue.error', err }, 'Failed to enqueue background task');
+      });
 
       // Immediately tell the caller the job is queued so the UI can open the SSE stream.
       res.status(202).json({ ok: true, status: 'queued', conversationId });
