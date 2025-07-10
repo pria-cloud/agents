@@ -12,7 +12,7 @@ const logger = pino({
 // Zod schema for the AppSpec
 const AppSpecSchema = z.object({
     // description is helpful but not strictly required in early discovery iterations
-    description: z.string().optional(),
+    description: z.string().max(500).optional(),
     /*
      * Allow the spec to include any other keys while the user and LLM iterate.
      * We intentionally keep this schema very loose so that minor field-name

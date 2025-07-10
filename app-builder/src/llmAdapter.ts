@@ -95,6 +95,8 @@ export async function generateWithGemini({ prompt, system, responseSchema }: Gem
           config: {
             responseMimeType: 'application/json',
             responseSchema: googleSchema,
+            maxOutputTokens: 512,
+            temperature: 0.2,
           },
         });
 
