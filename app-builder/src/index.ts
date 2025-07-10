@@ -105,27 +105,9 @@ async function main() {
       } as const;
     }
 
-    // Completed: check if user confirmed within same message
-    const positiveConfirmation = userInput?.toLowerCase().trim().match(/^(yes|proceed)/);
-    if (positiveConfirmation && incomingSpec) {
-      incomingSpec = discoveryResult.updatedAppSpec;
-      incomingSpec.isConfirmed = true;
-      return { awaiting: false, confirmedSpec: incomingSpec } as const;
-    }
-
-    // If caller explicitly set confirm flag, accept
-    if (body.confirm === true) {
-      return { awaiting: false, confirmedSpec: discoveryResult.updatedAppSpec } as const;
-    }
-
-    // Need explicit yes
-    const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
-    return {
-      awaiting: true,
-      responseToUser: discoveryResult.responseToUser,
-      updatedAppSpec: specForConfirmation,
-      needsConfirmation: true,
-    } as const;
+    // Completed: treat completion as implicit confirmation (auto-continue)
+    const confirmedSpec = { ...discoveryResult.updatedAppSpec, isConfirmed: true };
+    return { awaiting: false, confirmedSpec } as const;
   }
 
   app.post('/intent', async (req: Request, res: Response) => {
