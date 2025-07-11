@@ -116,104 +116,44 @@ async function main() {
   }
 
   app.post('/intent', async (req: Request, res: Response) => {
-    const isBackground = req.headers['x-vercel-background'] === '1';
     const { intent, trace_id, jwt, skip_github = false } = req.body;
+    const conversationId = req.body.conversationId || `conv-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+    
+    // Always run the synchronous discovery phase first.
+    const discovery = await runDiscoveryPhase(req.body, conversationId);
 
-    // If this is the initial (foreground) request, immediately enqueue a background invocation so
-    // the caller gets a quick 202/queued response. We previously did this only on Vercel because
-    // `x-vercel-background` performs the queuing automatically. For local/dev environments we
-    // replicate the same behaviour by posting to our own /intent endpoint with the background
-    // header. The actual work then happens in the second request, while the first one returns
-    // immediately.
-    if (!isBackground) {
-      const conversationId = req.body.conversationId || `conv-${Date.now()}-${Math.random().toString(36).substring(2)}`;
-      const discovery = await runDiscoveryPhase(req.body, conversationId);
-
-      if (discovery.awaiting) {
-        // Send progress so UI can show prompt
-        await sendProgress(conversationId, 'discovery', 50, discovery.responseToUser || '', 'in_progress');
-        res.status(200).json({
-          status: 'AWAITING_USER_INPUT',
-          responseToUser: discovery.responseToUser,
-          conversationId,
-          updatedAppSpec: discovery.updatedAppSpec,
-          needsConfirmation: discovery.needsConfirmation,
-        });
-        return;
-      }
-
-      // ----- Enqueue heavy phases via self-invocation (works on Vercel & local) -----
-      const agentSelfUrl = process.env.AGENT_PUBLIC_URL ??
-        (process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}/intent`
-          : `${req.protocol}://${req.headers.host}${req.originalUrl}`);
-
-      // Send initial progress so the UI can open the SSE stream right away
-      try {
-        await sendProgress(conversationId, 'queued', 0, 'Build job started', 'in_progress');
-      } catch (err) {
-        logger.warn({ event: 'progress.initial_queued.error', err }, 'Failed to send initial queued progress');
-      }
-
-      // Fire-and-forget background HTTP request (serverless safe)
-      fetch(agentSelfUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
-        body: JSON.stringify({ ...req.body, appSpec: discovery.confirmedSpec, conversationId }),
-      }).catch((err) => {
-        logger.error({ event: 'enqueue.error', err }, 'Failed to enqueue background task');
+    // If discovery is not complete, we must wait for more user input.
+    if (discovery.awaiting) {
+      // Send progress so UI can show prompt, then return 200 OK.
+      await sendProgress(conversationId, 'discovery', 50, discovery.responseToUser || '', 'in_progress');
+      res.status(200).json({
+        status: 'AWAITING_USER_INPUT',
+        responseToUser: discovery.responseToUser,
+        conversationId,
+        updatedAppSpec: discovery.updatedAppSpec,
+        needsConfirmation: discovery.needsConfirmation,
       });
-
-      // Immediately tell the caller the job is queued so the UI can open the SSE stream.
-      res.status(202).json({ ok: true, status: 'queued', conversationId });
       return;
     }
 
-    // ---- Background invocation continues here ----
-    logger.info({ event: 'intent.received', intent, trace_id }, 'Received intent');
-    // If this is the background invocation, immediately notify the router that processing has begun
-    if (isBackground) {
+    // --- Discovery is complete and confirmed ---
+    
+    // 1. Immediately send a 202 Queued response to the user.
+    res.status(202).json({ ok: true, status: 'queued', conversationId });
+    
+    // 2. Start the long-running task in the background. DO NOT await it.
+    (async () => {
       try {
-        await sendProgress(req.body.conversationId, 'queued', 0, 'Build job started', 'in_progress');
-      } catch (err) {
-        logger.warn({ event: 'progress.initial_queued.error', err }, 'Failed to send initial queued progress');
-      }
-    }
-
-    // Start a root span for the intent
-    const tracer = trace.getTracer('app-builder');
-    await tracer.startActiveSpan(intent || 'unknown_intent', async (span: Span) => {
-      try {
-        // Add trace_id, workspace_id, request_id as span attributes if present
-        if (trace_id) span.setAttribute('trace_id', trace_id);
-        
-        // We will pass the whole body as the payload now
-        const payload = req.body;
-        if (payload?.workspace_id) span.setAttribute('workspace_id', payload.workspace_id);
-        if (payload?.request_id) span.setAttribute('request_id', payload.request_id);
-
-        let result;
-        if (intent === 'app.compose') {
-          result = await handleAppComposeIntent({ ...payload, skip_github }, trace_id, jwt, span);
-          res.status(200).json({ ok: true, trace_id, ...result });
-        } else if (intent === 'app.preview') {
-          // This is a stub for a potential preview intent
-          const { files, dependencies } = payload;
-          await writeAppFromScaffold(files, dependencies);
-          // Here you might trigger a build and serve the app
-          res.status(200).json({ ok: true, trace_id, previewUrl: 'http://localhost:3000' });
-        } else {
-          res.status(400).json({ ok: false, error: 'Unsupported intent', trace_id });
-        }
-        span.end();
+        logger.info({ event: 'background.task.start' }, 'Starting background app compose task');
+        // We now directly call the handler for the heavy lifting.
+        await handleAppComposeIntent({ ...req.body, appSpec: discovery.confirmedSpec, conversationId }, trace_id, jwt);
+        logger.info({ event: 'background.task.success' }, 'Background app compose task finished successfully');
       } catch (err: any) {
-        logger.error({ event: 'intent.error', err, trace_id }, 'Error handling intent');
-        span.recordException(err);
-        span.setStatus({ code: 2, message: err.message });
-        span.end();
-        res.status(500).json({ ok: false, error: err.message, trace_id });
+        logger.error({ event: 'background.task.error', err: err?.message, stack: err?.stack }, 'Background app compose task failed');
+        // Report the failure back to the user via the progress stream.
+        await sendProgress(conversationId, 'error', 100, err?.message || 'An unknown error occurred.', 'error');
       }
-    });
+    })();
   });
 
   // Assign for serverless export
@@ -339,15 +279,10 @@ export async function handleAppComposeIntent(
     logger.info({ event: 'intent.confirm_shortcut' }, 'Spec marked confirmed via confirm flag');
   }
 
-  // Phase 0: Product Discovery (Conversational)
-  // If the spec is not yet confirmed by the user, we are in the discovery phase.
+  // The spec MUST be confirmed to proceed. This is now an assertion.
   if (!incomingSpec?.isConfirmed) {
-    // This entire block should only execute in the foreground, which is handled
-    // by the pre-flight check now. The background worker should never be in a
-    // state where the spec is unconfirmed. We are removing this block to prevent
-    // the background worker from incorrectly re-initiating discovery.
-    logger.error({ event: 'handleAppComposeIntent.unexpected_unconfirmed_spec' }, 'Background worker received an unconfirmed spec. This should not happen.');
-    throw new Error('Background worker received an unconfirmed spec.');
+    logger.error({ event: 'handleAppComposeIntent.unexpected_unconfirmed_spec' }, 'handleAppComposeIntent called with an unconfirmed spec. This should not happen.');
+    throw new Error('handleAppComposeIntent requires a confirmed spec to proceed.');
   }
 
   // The user has confirmed with 'yes', and the spec is confirmed.
