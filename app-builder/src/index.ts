@@ -141,12 +141,15 @@ async function main() {
       }
 
       // Discovery is complete. Queue the background job to do the heavy lifting.
-      const agentSelfUrl = process.env.AGENT_PUBLIC_URL ??
-        (process.env.VERCEL_URL
-          ? `httpshttps://${process.env.VERCEL_URL}/intent`
-          : `${req.protocol}://${req.headers.host}${req.originalUrl}`);
+      // In a Vercel environment, we MUST use the VERCEL_URL to construct the self-invocation URL.
+      const vercelUrl = process.env.VERCEL_URL;
+      if (!vercelUrl) {
+        throw new Error('VERCEL_URL environment variable is not set. Cannot enqueue background task.');
+      }
+      const agentSelfUrl = `https://${vercelUrl}/intent`;
 
       // Fire-and-forget the background request. This is the key for serverless.
+      logger.info({ event: 'background.enqueue.start', url: agentSelfUrl }, 'Enqueuing background task via fetch...');
       fetch(agentSelfUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
