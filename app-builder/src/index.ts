@@ -116,29 +116,7 @@ async function main() {
   }
 
   app.post('/intent', async (req: Request, res: Response) => {
-    const { isBackgroundTask, intent, trace_id, jwt, skip_github = false } = req.body;
-
-    // ---- BACKGROUND INVOCATION ----
-    // This invocation was triggered by the foreground task. It does the heavy lifting.
-    if (isBackgroundTask) {
-      logger.info({ event: 'background.task.start', body: req.body }, 'Starting background app compose task');
-      try {
-        await handleAppComposeIntent(req.body, trace_id, jwt);
-        // When the handler finishes, Vercel will automatically end the response.
-        // We don't need to explicitly send one.
-      } catch (err: any) {
-        logger.error({ event: 'background.task.error', err, trace_id }, 'Error in background task');
-        await sendProgress(req.body.conversationId, 'error', 100, err?.message || 'An unknown error occurred.', 'error');
-        // Let the invoker know there was an error.
-        if (!res.headersSent) {
-          res.status(500).json({ ok: false, error: err.message, trace_id });
-        }
-      }
-      return;
-    }
-
-    // ---- FOREGROUND INVOCATION ----
-    // This is the initial request from the user. It must be fast.
+    const { intent, trace_id, jwt, skip_github = false } = req.body;
     const conversationId = req.body.conversationId || `conv-${Date.now()}-${Math.random().toString(36).substring(2)}`;
     
     // Run the synchronous discovery/confirmation phase.
@@ -157,21 +135,23 @@ async function main() {
       return;
     }
 
-    // Discovery is complete. Queue the background job to do the heavy lifting.
-    const agentSelfUrl = `https://${process.env.VERCEL_URL}/intent`;
-    logger.info({ event: 'background.enqueue.start', url: agentSelfUrl }, 'Enqueuing background task via fetch...');
-    
-    // Fire-and-forget the background request with the new flag.
-    fetch(agentSelfUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...req.body, appSpec: discovery.confirmedSpec, conversationId, intent, trace_id, jwt, skip_github, isBackgroundTask: true }),
-    }).catch((err) => {
-      logger.error({ event: 'background.enqueue.error', err }, 'Failed to enqueue background task via fetch.');
-    });
-
-    // Immediately respond 202 to the original caller.
+    // Discovery is complete. Immediately respond 202 to the caller.
     res.status(202).json({ ok: true, status: 'queued', conversationId });
+
+    // Now continue with the background processing in the same invocation.
+    // This works because we've already sent the response above.
+    logger.info({ event: 'background.task.start.inline' }, 'Starting inline background processing');
+    try {
+      await handleAppComposeIntent(
+        { ...req.body, appSpec: discovery.confirmedSpec, conversationId }, 
+        trace_id, 
+        jwt
+      );
+      logger.info({ event: 'background.task.success.inline' }, 'Inline background processing completed successfully');
+    } catch (err: any) {
+      logger.error({ event: 'background.task.error.inline', err }, 'Error in inline background processing');
+      await sendProgress(conversationId, 'error', 100, err?.message || 'An unknown error occurred.', 'error');
+    }
   });
 
   // Assign for serverless export
