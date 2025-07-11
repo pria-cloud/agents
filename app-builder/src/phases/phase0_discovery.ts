@@ -3,6 +3,7 @@ import { z } from 'zod';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
+// @ts-ignore - jsonrepair has no type declarations
 import { jsonrepair } from 'jsonrepair';
 
 const logger = pino({
@@ -128,21 +129,26 @@ export async function runPhase0ProductDiscovery(
     // Debug log of the parsed structure before validation
     logger.debug({ parsed }, 'Parsed JSON from discovery');
 
+    // ---------- Pre-validation cleanup ----------
+    const descPath = (parsed as any)?.updatedAppSpec?.description;
+    if (typeof descPath === 'string' && descPath.length > 500) {
+      (parsed as any).updatedAppSpec.description = descPath.slice(0, 500) + '…';
+      logger.info({ event: 'phase.discovery.truncate', originalLen: descPath.length }, 'Truncated oversized description field to 500 chars');
+    }
+
     const validationResult = DiscoveryResponseSchema.safeParse(parsed);
-    
+
     if (!validationResult.success) {
-      logger.error({ event: 'phase.discovery.validation_error', errors: validationResult.error.issues, data: parsed }, 'LLM response failed validation');
-      throw new Error('LLM response validation failed.');
+      logger.error({ event: 'phase.discovery.validation_error', errors: validationResult.error.issues, data: parsed }, 'LLM response failed validation after repair/truncate');
+      // Return partial spec instead of throwing; ask user to continue.
+      return {
+        updatedAppSpec: (parsed as any)?.updatedAppSpec ?? currentSpec,
+        responseToUser: "I'm refining the spec; please confirm or provide adjustments.",
+        isComplete: false,
+      };
     }
 
-    const clean = validationResult.data;
-    const desc = (clean.updatedAppSpec as any)?.description;
-    if (typeof desc === 'string' && desc.length > 1000) {
-      (clean.updatedAppSpec as any).description = desc.slice(0, 1000) + '…';
-      logger.info({ event: 'phase.discovery.truncate', originalLen: desc.length }, 'Truncated oversized description field in discovery spec');
-    }
-
-    return clean;
+    return validationResult.data;
   } catch (error) {
     logger.error({ event: 'phase.discovery.json_parse_error', raw, error }, 'Failed to parse JSON from LLM output in discovery phase');
     return {
