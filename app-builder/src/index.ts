@@ -247,28 +247,27 @@ async function sendProgress(
 ) {
   if (!conversationId) return;
   
-  // Create an AbortController for timeout
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
+  logger.info({ event: 'progress.send.attempt', conversationId, phase, url: `${process.env.A2A_ROUTER_URL}/a2a/progress` }, 'Attempting to send progress update');
+  
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (process.env.A2A_API_KEY) headers['x-api-key'] = process.env.A2A_API_KEY;
     
-    logger.info({ event: 'progress.send.attempt', conversationId, phase, url: `${process.env.A2A_ROUTER_URL}/a2a/progress` }, 'Attempting to send progress update');
-    
-    await fetch(`${process.env.A2A_ROUTER_URL}/a2a/progress`, {
+    // Use Promise.race for reliable timeout in serverless environment
+    const fetchPromise = fetch(`${process.env.A2A_ROUTER_URL}/a2a/progress`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ conversationId, phase, percent, message, status }),
-      signal: controller.signal,
     });
     
-    clearTimeout(timeoutId);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('TIMEOUT')), 5000)
+    );
+    
+    await Promise.race([fetchPromise, timeoutPromise]);
     logger.info({ event: 'progress.send.success', conversationId, phase }, 'Progress update sent successfully');
   } catch (err: any) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
+    if (err.message === 'TIMEOUT') {
       logger.warn({ event: 'progress.send.timeout', conversationId, phase }, 'Progress update timed out after 5 seconds');
     } else {
       logger.warn({ event: 'progress.send.error', err, conversationId, phase }, 'Failed to send progress update');
