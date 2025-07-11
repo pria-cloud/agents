@@ -82,7 +82,12 @@ async function main() {
     const { userInput } = body;
     let incomingSpec = body.appSpec;
 
-    // If the spec has already been confirmed, bypass the LLM entirely.
+    // Highest priority: If the caller is explicitly confirming the spec, accept it and exit.
+    if (body.confirm == true && incomingSpec) {
+      return { awaiting: false, confirmedSpec: { ...incomingSpec, isConfirmed: true } } as const;
+    }
+
+    // If the spec has already been confirmed in a previous turn, bypass the LLM entirely.
     if (incomingSpec?.isConfirmed) {
       return { awaiting: false, confirmedSpec: incomingSpec } as const;
     }
@@ -94,19 +99,13 @@ async function main() {
       body.history || []
     );
 
-    // Discovery indicates completion – require explicit user confirmation.
+    // If the user's text is a confirmation (e.g. "yes"), accept the spec from the LLM.
     const positiveConfirmation = userInput?.toLowerCase().trim().match(/^(yes|proceed)/);
     if (positiveConfirmation && incomingSpec) {
       return { awaiting: false, confirmedSpec: { ...discoveryResult.updatedAppSpec, isConfirmed: true } } as const;
     }
 
-    // If caller explicitly set confirm flag, accept automatically
-    // Use loose equality to handle boolean true and string "true"
-    if (body.confirm == true) {
-      return { awaiting: false, confirmedSpec: { ...discoveryResult.updatedAppSpec, isConfirmed: true } } as const;
-    }
-
-    // Otherwise return draft and ask for confirmation
+    // Otherwise return the draft from the LLM and ask for confirmation.
     const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false };
     return {
       awaiting: true,
