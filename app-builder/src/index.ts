@@ -246,16 +246,34 @@ async function sendProgress(
   status: 'in_progress' | 'completed' | 'error' = 'in_progress'
 ) {
   if (!conversationId) return;
+  
+  // Create an AbortController for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (process.env.A2A_API_KEY) headers['x-api-key'] = process.env.A2A_API_KEY;
+    
+    logger.info({ event: 'progress.send.attempt', conversationId, phase, url: `${process.env.A2A_ROUTER_URL}/a2a/progress` }, 'Attempting to send progress update');
+    
     await fetch(`${process.env.A2A_ROUTER_URL}/a2a/progress`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ conversationId, phase, percent, message, status }),
+      signal: controller.signal,
     });
-  } catch (err) {
-    logger.warn({ event: 'progress.send.error', err }, 'Failed to send progress update');
+    
+    clearTimeout(timeoutId);
+    logger.info({ event: 'progress.send.success', conversationId, phase }, 'Progress update sent successfully');
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      logger.warn({ event: 'progress.send.timeout', conversationId, phase }, 'Progress update timed out after 5 seconds');
+    } else {
+      logger.warn({ event: 'progress.send.error', err, conversationId, phase }, 'Failed to send progress update');
+    }
+    // Don't throw - just log and continue. Progress updates are non-critical.
   }
 }
 
