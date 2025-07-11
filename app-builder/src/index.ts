@@ -116,44 +116,79 @@ async function main() {
   }
 
   app.post('/intent', async (req: Request, res: Response) => {
+    const isBackground = req.headers['x-vercel-background'] === '1';
     const { intent, trace_id, jwt, skip_github = false } = req.body;
-    const conversationId = req.body.conversationId || `conv-${Date.now()}-${Math.random().toString(36).substring(2)}`;
-    
-    // Always run the synchronous discovery phase first.
-    const discovery = await runDiscoveryPhase(req.body, conversationId);
 
-    // If discovery is not complete, we must wait for more user input.
-    if (discovery.awaiting) {
-      // Send progress so UI can show prompt, then return 200 OK.
-      await sendProgress(conversationId, 'discovery', 50, discovery.responseToUser || '', 'in_progress');
-      res.status(200).json({
-        status: 'AWAITING_USER_INPUT',
-        responseToUser: discovery.responseToUser,
-        conversationId,
-        updatedAppSpec: discovery.updatedAppSpec,
-        needsConfirmation: discovery.needsConfirmation,
+    // ---- FOREGROUND INVOCATION ----
+    // This is the initial request from the user. It must be fast.
+    if (!isBackground) {
+      const conversationId = req.body.conversationId || `conv-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+      
+      // Run the synchronous discovery/confirmation phase.
+      const discovery = await runDiscoveryPhase(req.body, conversationId);
+
+      // If discovery needs more user input, return 200 and wait for the next user message.
+      if (discovery.awaiting) {
+        await sendProgress(conversationId, 'discovery', 50, discovery.responseToUser || '', 'in_progress');
+        res.status(200).json({
+          status: 'AWAITING_USER_INPUT',
+          responseToUser: discovery.responseToUser,
+          conversationId,
+          updatedAppSpec: discovery.updatedAppSpec,
+          needsConfirmation: discovery.needsConfirmation,
+        });
+        return;
+      }
+
+      // Discovery is complete. Queue the background job to do the heavy lifting.
+      const agentSelfUrl = process.env.AGENT_PUBLIC_URL ??
+        (process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}/intent`
+          : `${req.protocol}://${req.headers.host}${req.originalUrl}`);
+
+      // Fire-and-forget the background request. This is the key for serverless.
+      fetch(agentSelfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-vercel-background': '1' },
+        body: JSON.stringify({ ...req.body, appSpec: discovery.confirmedSpec, conversationId, intent, trace_id, jwt, skip_github }),
+      }).catch((err) => {
+        logger.error({ event: 'background.enqueue.error', err }, 'Failed to enqueue background task via fetch.');
       });
+
+      // Immediately respond 202 to the original caller.
+      res.status(202).json({ ok: true, status: 'queued', conversationId });
       return;
     }
 
-    // --- Discovery is complete and confirmed ---
+    // ---- BACKGROUND INVOCATION ----
+    // If we reach here, `isBackground` is true.
+    logger.info({ event: 'background.task.start', body: req.body }, 'Starting background app compose task');
     
-    // 1. Immediately send a 202 Queued response to the user.
-    res.status(202).json({ ok: true, status: 'queued', conversationId });
-    
-    // 2. Start the long-running task in the background. DO NOT await it.
-    (async () => {
+    const tracer = trace.getTracer('app-builder');
+    await tracer.startActiveSpan(intent || 'unknown_intent', async (span: Span) => {
       try {
-        logger.info({ event: 'background.task.start' }, 'Starting background app compose task');
-        // We now directly call the handler for the heavy lifting.
-        await handleAppComposeIntent({ ...req.body, appSpec: discovery.confirmedSpec, conversationId }, trace_id, jwt);
-        logger.info({ event: 'background.task.success' }, 'Background app compose task finished successfully');
+        if (trace_id) span.setAttribute('trace_id', trace_id);
+        const payload = req.body;
+        if (payload?.workspace_id) span.setAttribute('workspace_id', payload.workspace_id);
+        if (payload?.request_id) span.setAttribute('request_id', payload.request_id);
+
+        let result;
+        if (intent === 'app.compose') {
+          result = await handleAppComposeIntent(payload, trace_id, jwt, span);
+          res.status(200).json({ ok: true, trace_id, ...result });
+        } else {
+          res.status(400).json({ ok: false, error: 'Unsupported intent for background task', trace_id });
+        }
+        span.end();
       } catch (err: any) {
-        logger.error({ event: 'background.task.error', err: err?.message, stack: err?.stack }, 'Background app compose task failed');
-        // Report the failure back to the user via the progress stream.
-        await sendProgress(conversationId, 'error', 100, err?.message || 'An unknown error occurred.', 'error');
+        logger.error({ event: 'background.task.error', err, trace_id }, 'Error in background task');
+        span.recordException(err);
+        span.setStatus({ code: 2, message: err.message });
+        span.end();
+        await sendProgress(req.body.conversationId, 'error', 100, err?.message || 'An unknown error occurred.', 'error');
+        res.status(500).json({ ok: false, error: err.message, trace_id });
       }
-    })();
+    });
   });
 
   // Assign for serverless export
