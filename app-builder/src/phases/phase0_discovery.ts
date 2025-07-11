@@ -64,7 +64,6 @@ export async function runPhase0ProductDiscovery(
 ): Promise<{updatedAppSpec: any, responseToUser: string, isComplete: boolean}> {
   const partials = [
     'instructions_discovery.md',
-    'rules_critical_output.md',
   ];
   const system = assemblePrompt(partials);
 
