@@ -77,7 +77,8 @@ export async function runPhase0ProductDiscovery(
   logger.info({ event: 'phase.discovery.prompt', conversationId }, 'Prompt sent to LLM for product discovery');
   let raw: string;
   try {
-    raw = await generateWithGemini({ prompt, system, responseSchema: DiscoveryResponseSchema });
+    // Call Gemini without a responseSchema; rely on prompt instructions to return the JSON shape.
+    raw = await generateWithGemini({ prompt, system });
   } catch (err: any) {
     logger.warn({ event: 'phase.discovery.structured_fail', err: err?.message }, 'Structured generation failed, falling back to plain text');
     raw = await generateWithGemini({ prompt, system });
