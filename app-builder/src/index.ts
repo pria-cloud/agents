@@ -18,6 +18,7 @@ import { trace, Span } from '@opentelemetry/api';
 import { mcp_supabase_generate_typescript_types } from './mcp_client';
 import fetch from 'node-fetch';
 import type { Request as ExRequest, Response as ExResponse } from 'express';
+import { waitUntil } from '@vercel/functions';
 
 const logger = pino({
   name: 'app-builder',
@@ -138,20 +139,21 @@ async function main() {
     // Discovery is complete. Immediately respond 202 to the caller.
     res.status(202).json({ ok: true, status: 'queued', conversationId });
 
-    // Now continue with the background processing in the same invocation.
-    // This works because we've already sent the response above.
-    logger.info({ event: 'background.task.start.inline' }, 'Starting inline background processing');
-    try {
-      await handleAppComposeIntent(
-        { ...req.body, appSpec: discovery.confirmedSpec, conversationId }, 
-        trace_id, 
-        jwt
-      );
-      logger.info({ event: 'background.task.success.inline' }, 'Inline background processing completed successfully');
-    } catch (err: any) {
-      logger.error({ event: 'background.task.error.inline', err }, 'Error in inline background processing');
-      await sendProgress(conversationId, 'error', 100, err?.message || 'An unknown error occurred.', 'error');
-    }
+    // Use Vercel's waitUntil for proper background task handling
+    waitUntil((async () => {
+      try {
+        logger.info({ event: 'background.task.start.waitUntil' }, 'Starting background processing with waitUntil');
+        await handleAppComposeIntent(
+          { ...req.body, appSpec: discovery.confirmedSpec, conversationId }, 
+          trace_id, 
+          jwt
+        );
+        logger.info({ event: 'background.task.success.waitUntil' }, 'Background processing completed successfully');
+      } catch (err: any) {
+        logger.error({ event: 'background.task.error.waitUntil', err }, 'Error in background processing');
+        await sendProgress(conversationId, 'error', 100, err?.message || 'An unknown error occurred.', 'error');
+      }
+    })());
   });
 
   // Assign for serverless export
