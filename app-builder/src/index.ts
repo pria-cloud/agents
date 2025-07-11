@@ -97,13 +97,12 @@ async function main() {
     // Discovery indicates completion – require explicit user confirmation.
     const positiveConfirmation = userInput?.toLowerCase().trim().match(/^(yes|proceed)/);
     if (positiveConfirmation && incomingSpec) {
-      incomingSpec = discoveryResult.updatedAppSpec;
-      incomingSpec.isConfirmed = true;
-      return { awaiting: false, confirmedSpec: incomingSpec } as const;
+      return { awaiting: false, confirmedSpec: { ...discoveryResult.updatedAppSpec, isConfirmed: true } } as const;
     }
 
     // If caller explicitly set confirm flag, accept automatically
-    if (body.confirm === true) {
+    // Use loose equality to handle boolean true and string "true"
+    if (body.confirm == true) {
       return { awaiting: false, confirmedSpec: { ...discoveryResult.updatedAppSpec, isConfirmed: true } } as const;
     }
 
@@ -113,7 +112,7 @@ async function main() {
       awaiting: true,
       responseToUser: discoveryResult.responseToUser,
       updatedAppSpec: specForConfirmation,
-      needsConfirmation: true,
+      needsConfirmation: discoveryResult.isComplete, // Let UI know to show a "Confirm" button.
     } as const;
   }
 
