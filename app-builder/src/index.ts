@@ -343,46 +343,12 @@ export async function handleAppComposeIntent(
   // Phase 0: Product Discovery (Conversational)
   // If the spec is not yet confirmed by the user, we are in the discovery phase.
   if (!incomingSpec?.isConfirmed) {
-    const discoveryResult: DiscoveryResponse = await runPhase0ProductDiscovery(
-      userInput,
-      incomingSpec,
-      conversationId ?? '',
-      requestBody.history || []
-    );
-
-    // If discovery is not complete, we await more user input.
-    if (!discoveryResult.isComplete) {
-      // Emit progress so UI receives the prompt via SSE
-      await sendProgress(conversationId, 'discovery', 50, discoveryResult.responseToUser || '', 'in_progress');
-      return {
-        status: 'AWAITING_USER_INPUT',
-        responseToUser: discoveryResult.responseToUser,
-        updatedAppSpec: discoveryResult.updatedAppSpec, // This will be cached by the router
-      };
-    }
-
-    // At this point, the discovery phase *thinks* it's complete.
-    // We will present the summary and mark the spec as ready for final confirmation.
-    const specForConfirmation = { ...discoveryResult.updatedAppSpec, isConfirmed: false }; 
-
-    // Before we return, check if the user's last message was the final "yes".
-    const positiveConfirmation = userInput?.toLowerCase().trim().match(/^(yes|proceed)/);
-    if (positiveConfirmation && incomingSpec) { // `incomingSpec` must exist to be confirming it
-        // The user has confirmed. We can override the spec with a confirmed status and let the flow continue.
-        // IMPORTANT: use the final spec from the discovery result as the confirmed spec
-        incomingSpec = discoveryResult.updatedAppSpec;
-        incomingSpec.isConfirmed = true;
-    } else {
-        // The user has NOT confirmed yet. Return the summary and wait for the 'yes'.
-        // Emit progress so UI receives the prompt via SSE
-        await sendProgress(conversationId, 'discovery', 50, discoveryResult.responseToUser || '', 'in_progress');
-        return {
-            status: 'AWAITING_USER_INPUT', 
-            responseToUser: discoveryResult.responseToUser,
-            updatedAppSpec: specForConfirmation, 
-            needsConfirmation: true,
-        };
-    }
+    // This entire block should only execute in the foreground, which is handled
+    // by the pre-flight check now. The background worker should never be in a
+    // state where the spec is unconfirmed. We are removing this block to prevent
+    // the background worker from incorrectly re-initiating discovery.
+    logger.error({ event: 'handleAppComposeIntent.unexpected_unconfirmed_spec' }, 'Background worker received an unconfirmed spec. This should not happen.');
+    throw new Error('Background worker received an unconfirmed spec.');
   }
 
   // The user has confirmed with 'yes', and the spec is confirmed.
