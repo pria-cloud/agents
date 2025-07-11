@@ -143,7 +143,7 @@ async function main() {
       // Discovery is complete. Queue the background job to do the heavy lifting.
       const agentSelfUrl = process.env.AGENT_PUBLIC_URL ??
         (process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}/intent`
+          ? `httpshttps://${process.env.VERCEL_URL}/intent`
           : `${req.protocol}://${req.headers.host}${req.originalUrl}`);
 
       // Fire-and-forget the background request. This is the key for serverless.
@@ -325,7 +325,9 @@ export async function handleAppComposeIntent(
   logger.info({ event: 'phase.discovery.confirmed', appSpec }, 'Product discovery complete and confirmed by user.');
 
   // Send initial progress update
+  logger.info({ event: 'progress.send.before', conversationId, phase: 'plan' }, 'Attempting to send initial progress update...');
   await sendProgress(conversationId, 'plan', 0, 'Planning application');
+  logger.info({ event: 'progress.send.after', conversationId, phase: 'plan' }, 'Initial progress update sent successfully.');
 
   // MCP Integration: Fetch dynamic context before generation
   let dbSchemaTypes = '';
