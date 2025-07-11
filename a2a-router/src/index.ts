@@ -89,9 +89,50 @@ const conversationCache: Record<string, any> = {};
 
 const progressStreams: Record<string, Set<Response>> = {}; // fallback only
 
+// Channel management for Supabase Realtime
+const activeChannels: Record<string, any> = {}; // Track active channels for broadcasting
+
 // Helper to get a channel name that is safe and unique
 function progressChannelName(conversationId: string) {
   return `progress:${conversationId}`;
+}
+
+// Get or create a subscribed channel for broadcasting
+async function getOrCreateBroadcastChannel(conversationId: string) {
+  if (!supabase) return null;
+  
+  const channelName = progressChannelName(conversationId);
+  
+  if (activeChannels[channelName]) {
+    return activeChannels[channelName];
+  }
+  
+  // Create new channel and subscribe it
+  const channel = supabase.channel(channelName);
+  
+  // Subscribe to enable broadcasting
+  const subscriptionPromise = new Promise((resolve) => {
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log(`[A2A] Broadcast channel subscribed for ${channelName}`);
+        resolve(channel);
+      }
+    });
+  });
+  
+  activeChannels[channelName] = channel;
+  
+  // Clean up after 1 hour to prevent memory leaks
+  setTimeout(() => {
+    if (activeChannels[channelName]) {
+      activeChannels[channelName].unsubscribe();
+      delete activeChannels[channelName];
+      console.log(`[A2A] Cleaned up broadcast channel ${channelName}`);
+    }
+  }, 60 * 60 * 1000); // 1 hour
+  
+  await subscriptionPromise;
+  return channel;
 }
 
 // Open an SSE stream that clients can subscribe to for progress updates
@@ -153,10 +194,20 @@ app.post('/a2a/progress', async (req: Request, res: Response) => {
     return;
   }
 
+  console.log(`[A2A] Received progress update for ${conversationId}:`, update);
+
   if (supabase) {
-    const channelName = progressChannelName(conversationId);
-    // Broadcast without creating a persistent subscription
-    await supabase.channel(channelName).send({ type: 'broadcast', event: 'update', payload: update });
+    try {
+      const channel = await getOrCreateBroadcastChannel(conversationId);
+      if (channel) {
+        await channel.send({ type: 'broadcast', event: 'update', payload: update });
+        console.log(`[A2A] Broadcasted progress update for ${conversationId}`);
+      } else {
+        console.error(`[A2A] Failed to get broadcast channel for ${conversationId}`);
+      }
+    } catch (err) {
+      console.error(`[A2A] Failed to broadcast progress update:`, err);
+    }
   } else {
     const subscribers = progressStreams[conversationId];
     if (subscribers && subscribers.size > 0) {
