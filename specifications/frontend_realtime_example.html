@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PRIA Frontend Realtime Integration Example</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .progress-container { margin: 20px 0; }
+        .progress-bar { width: 100%; height: 20px; background: #f0f0f0; border-radius: 10px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #4CAF50; transition: width 0.3s ease; }
+        .log { background: #f5f5f5; padding: 10px; border-radius: 5px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
+        .log-entry { margin: 5px 0; padding: 5px; border-left: 3px solid #ddd; }
+        .log-entry.info { border-color: #2196F3; }
+        .log-entry.success { border-color: #4CAF50; }
+        .log-entry.error { border-color: #f44336; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .primary { background: #2196F3; color: white; }
+        .success { background: #4CAF50; color: white; }
+        input, textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 5px; }
+        .files-container { margin: 20px 0; }
+        .file-item { background: #f9f9f9; padding: 10px; margin: 5px 0; border-radius: 5px; }
+        .file-path { font-weight: bold; color: #333; }
+        .file-content { font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; background: white; padding: 10px; margin: 5px 0; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>PRIA Frontend Realtime Integration Example</h1>
+    
+    <div>
+        <h3>Configuration</h3>
+        <input type="text" id="supabaseUrl" placeholder="Supabase URL" value="https://your-project.supabase.co">
+        <input type="text" id="supabaseKey" placeholder="Supabase Anon Key" value="your-anon-key">
+        <input type="text" id="a2aRouterUrl" placeholder="A2A Router URL" value="http://localhost:9999">
+        <input type="text" id="apiKey" placeholder="API Key (optional)" value="">
+        <button class="primary" onclick="initializeSupabase()">Initialize Supabase</button>
+    </div>
+
+    <div>
+        <h3>Submit Intent</h3>
+        <textarea id="userInput" placeholder="Describe your app idea..." rows="3">I want to build a simple expense tracker with categories</textarea>
+        <button class="primary" onclick="submitIntent()">Submit Intent</button>
+        <button class="success" onclick="confirmSpec()">Confirm Spec</button>
+    </div>
+
+    <div class="progress-container">
+        <h3>Progress</h3>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+        <div id="progressText">Ready to start...</div>
+    </div>
+
+    <div>
+        <h3>Log</h3>
+        <div class="log" id="logContainer"></div>
+    </div>
+
+    <div class="files-container" id="filesContainer" style="display: none;">
+        <h3>Generated Files</h3>
+        <div id="filesList"></div>
+    </div>
+
+    <script>
+        let supabase = null;
+        let currentChannel = null;
+        let conversationId = null;
+        let currentAppSpec = null;
+
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function updateProgress(percent, message) {
+            document.getElementById('progressFill').style.width = `${percent}%`;
+            document.getElementById('progressText').textContent = `${percent}% - ${message}`;
+        }
+
+        function initializeSupabase() {
+            const url = document.getElementById('supabaseUrl').value;
+            const key = document.getElementById('supabaseKey').value;
+            
+            if (!url || !key) {
+                log('Please provide Supabase URL and key', 'error');
+                return;
+            }
+
+            try {
+                supabase = window.supabase.createClient(url, key);
+                log('Supabase client initialized successfully', 'success');
+            } catch (error) {
+                log(`Failed to initialize Supabase: ${error.message}`, 'error');
+            }
+        }
+
+        function subscribeToProgress(conversationId) {
+            if (!supabase) {
+                log('Supabase not initialized', 'error');
+                return;
+            }
+
+            // Unsubscribe from previous channel if exists
+            if (currentChannel) {
+                currentChannel.unsubscribe();
+            }
+
+            const channelName = `progress:${conversationId}`;
+            log(`Subscribing to channel: ${channelName}`);
+
+            currentChannel = supabase.channel(channelName)
+                .on('broadcast', { event: 'update' }, ({ payload }) => {
+                    log(`Progress update: ${payload.phase} - ${payload.percent}% - ${payload.message}`);
+                    updateProgress(payload.percent, `${payload.phase}: ${payload.message}`);
+                    
+                    if (payload.status === 'completed' && payload.message?.files) {
+                        log('Application generation completed!', 'success');
+                        displayFiles(payload.message.files, payload.message.dependencies);
+                        currentChannel.unsubscribe();
+                        currentChannel = null;
+                    }
+                    
+                    if (payload.status === 'error') {
+                        log(`Error: ${payload.message}`, 'error');
+                        currentChannel.unsubscribe();
+                        currentChannel = null;
+                    }
+                })
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        log(`Successfully subscribed to progress updates for ${conversationId}`, 'success');
+                    } else if (status === 'CHANNEL_ERROR') {
+                        log('Failed to subscribe to progress updates', 'error');
+                    }
+                });
+        }
+
+        async function submitIntent() {
+            const userInput = document.getElementById('userInput').value;
+            const a2aRouterUrl = document.getElementById('a2aRouterUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+            
+            if (!userInput.trim()) {
+                log('Please enter your app idea', 'error');
+                return;
+            }
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['x-api-key'] = apiKey;
+
+                const requestBody = {
+                    intent: 'app.compose',
+                    userInput: userInput,
+                    history: []
+                };
+
+                if (conversationId && currentAppSpec) {
+                    requestBody.conversationId = conversationId;
+                    requestBody.appSpec = currentAppSpec;
+                }
+
+                log('Submitting intent to A2A router...');
+                
+                const response = await fetch(`${a2aRouterUrl}/a2a/intent`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(requestBody)
+                });
+
+                const result = await response.json();
+                log(`Response: ${JSON.stringify(result, null, 2)}`);
+
+                if (result.conversationId) {
+                    conversationId = result.conversationId;
+                    
+                    if (result.status === 'AWAITING_USER_INPUT') {
+                        log(`Assistant: ${result.responseToUser}`);
+                        if (result.updatedAppSpec) {
+                            currentAppSpec = result.updatedAppSpec;
+                        }
+                    } else if (result.status === 'queued') {
+                        log('Background processing started, subscribing to progress updates...');
+                        subscribeToProgress(conversationId);
+                        updateProgress(0, 'Processing started...');
+                    }
+                }
+
+            } catch (error) {
+                log(`Error submitting intent: ${error.message}`, 'error');
+            }
+        }
+
+        async function confirmSpec() {
+            if (!conversationId || !currentAppSpec) {
+                log('No conversation or spec to confirm', 'error');
+                return;
+            }
+
+            const a2aRouterUrl = document.getElementById('a2aRouterUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['x-api-key'] = apiKey;
+
+                log('Confirming specification...');
+                
+                const response = await fetch(`${a2aRouterUrl}/a2a/intent`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        intent: 'app.compose',
+                        conversationId: conversationId,
+                        userInput: 'Yes, proceed with this specification',
+                        appSpec: currentAppSpec,
+                        confirm: true
+                    })
+                });
+
+                const result = await response.json();
+                log(`Confirmation response: ${JSON.stringify(result, null, 2)}`);
+
+                if (result.status === 'queued') {
+                    log('Background processing started, subscribing to progress updates...');
+                    subscribeToProgress(conversationId);
+                    updateProgress(0, 'Processing started...');
+                }
+
+            } catch (error) {
+                log(`Error confirming spec: ${error.message}`, 'error');
+            }
+        }
+
+        function displayFiles(files, dependencies) {
+            const filesContainer = document.getElementById('filesContainer');
+            const filesList = document.getElementById('filesList');
+            
+            filesContainer.style.display = 'block';
+            filesList.innerHTML = '';
+
+            if (dependencies && dependencies.length > 0) {
+                const depsDiv = document.createElement('div');
+                depsDiv.className = 'file-item';
+                depsDiv.innerHTML = `
+                    <div class="file-path">Dependencies</div>
+                    <div class="file-content">${dependencies.join('\n')}</div>
+                `;
+                filesList.appendChild(depsDiv);
+            }
+
+            files.forEach(file => {
+                const fileDiv = document.createElement('div');
+                fileDiv.className = 'file-item';
+                fileDiv.innerHTML = `
+                    <div class="file-path">${file.path}</div>
+                    <div class="file-content">${file.content}</div>
+                `;
+                filesList.appendChild(fileDiv);
+            });
+
+            log(`Generated ${files.length} files`, 'success');
+        }
+
+        // Initialize with some default values for testing
+        window.addEventListener('load', () => {
+            log('Frontend example loaded. Configure Supabase credentials and submit an intent to test.', 'info');
+        });
+    </script>
+</body>
+</html> 

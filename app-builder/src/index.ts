@@ -239,7 +239,7 @@ async function writeAppFromScaffold(
   logger.info({ event: 'scaffold.write.complete' }, 'Finished writing generated app from scaffold.');
 }
 
-// Helper to push progress updates to the A2A-router SSE endpoint
+// Helper to push progress updates to the A2A-router for Supabase Realtime broadcasting
 async function sendProgress(
   conversationId: string | undefined,
   phase: string,

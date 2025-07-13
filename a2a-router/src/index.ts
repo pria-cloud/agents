@@ -31,7 +31,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.warn('[A2A] SUPABASE_URL / KEY not set – falling back to in-memory registry.');
+  console.warn('[A2A] SUPABASE_URL / KEY not set – progress updates will not work.');
 }
 
 const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
@@ -82,13 +82,7 @@ const localAgents: Record<string, AgentRecord> = {}; // used when Supabase not c
 // In-memory cache for conversations
 const conversationCache: Record<string, any> = {};
 
-// ---- Progress Streaming (SSE via Supabase Realtime) ----
-// If Supabase is available we broadcast progress events over a Realtime channel named after the conversationId.
-// Each HTTP subscriber opens its own channel subscription and pipes events to the SSE socket.
-// When Supabase is not configured we fall back to an in-memory map as before (useful for local dev).
-
-const progressStreams: Record<string, Set<Response>> = {}; // fallback only
-
+// ---- Progress Broadcasting (Supabase Realtime Only) ----
 // Channel management for Supabase Realtime
 const activeChannels: Record<string, any> = {}; // Track active channels for broadcasting
 
@@ -99,7 +93,10 @@ function progressChannelName(conversationId: string) {
 
 // Get or create a subscribed channel for broadcasting
 async function getOrCreateBroadcastChannel(conversationId: string) {
-  if (!supabase) return null;
+  if (!supabase) {
+    console.warn('[A2A] Supabase not configured - cannot broadcast progress updates');
+    return null;
+  }
   
   const channelName = progressChannelName(conversationId);
   
@@ -135,56 +132,7 @@ async function getOrCreateBroadcastChannel(conversationId: string) {
   return channel;
 }
 
-// Open an SSE stream that clients can subscribe to for progress updates
-app.get('/a2a/stream/:conversationId', async (req: Request, res: Response) => {
-  const { conversationId } = req.params;
-
-  // Set headers for SSE
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.(); // In case compression is on
-
-  // Send an initial comment to keep connection alive
-  res.write(': connected\n\n');
-
-  if (supabase) {
-    // Supabase Realtime path
-    const channelName = progressChannelName(conversationId);
-    const channel = supabase.channel(channelName);
-
-    channel.on('broadcast', { event: 'update' }, ({ payload }: { payload: any }) => {
-      res.write(`data: ${JSON.stringify(payload)}\n\n`);
-      if (payload?.status === 'completed' || payload?.status === 'error') {
-        // close SSE and unsubscribe
-        res.end();
-        channel.unsubscribe();
-      }
-    });
-
-    channel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        console.log(`[A2A] SSE client subscribed to ${channelName}`);
-      }
-    });
-
-    req.on('close', () => {
-      channel.unsubscribe();
-    });
-  } else {
-    // In-memory fallback (single-process dev run)
-    if (!progressStreams[conversationId]) {
-      progressStreams[conversationId] = new Set();
-    }
-    progressStreams[conversationId].add(res);
-
-    req.on('close', () => {
-      progressStreams[conversationId].delete(res);
-    });
-  }
-});
-
-// Agent pushes progress updates here
+// Agent pushes progress updates here - broadcasts to Supabase Realtime
 app.post('/a2a/progress', async (req: Request, res: Response) => {
   const update = req.body;
   const { conversationId } = update || {};
@@ -209,16 +157,7 @@ app.post('/a2a/progress', async (req: Request, res: Response) => {
       console.error(`[A2A] Failed to broadcast progress update:`, err);
     }
   } else {
-    const subscribers = progressStreams[conversationId];
-    if (subscribers && subscribers.size > 0) {
-      const payload = `data: ${JSON.stringify(update)}\n\n`;
-      subscribers.forEach((stream) => stream.write(payload));
-
-      if (['completed', 'error'].includes(update.status)) {
-        subscribers.forEach((stream) => stream.end());
-        delete progressStreams[conversationId];
-      }
-    }
+    console.warn(`[A2A] Supabase not configured - cannot broadcast progress update for ${conversationId}`);
   }
 
   res.json({ ok: true });
