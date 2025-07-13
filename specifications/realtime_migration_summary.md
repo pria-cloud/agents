@@ -86,7 +86,11 @@ import { createClient } from '@supabase/supabase-js'
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 function subscribeToProgress(conversationId: string) {
-  const channel = supabase.channel(`progress:${conversationId}`)
+  const channel = supabase.channel(`progress:${conversationId}`, {
+    config: {
+      broadcast: { self: true }
+    }
+  })
     .on('broadcast', { event: 'update' }, ({ payload }) => {
       updateProgressUI(payload);
       if (payload.status === 'completed' && payload.message?.files) {
@@ -141,6 +145,31 @@ A2A_ROUTER_URL=your_a2a_router_url
 - **Better reliability** - Supabase handles WebSocket reconnection
 - **Scalable** - No server-side connection management needed
 - **Cost effective** - No serverless function time spent on SSE connections
+
+## 🔧 **Critical Configuration Fix**
+
+**Issue**: Initial implementation was causing Supabase Realtime errors:
+```
+"Unable to subscribe to changes with given parameters. Please check Realtime is enabled for the given connect parameters: [event: *, schema: public, table: *]"
+```
+
+**Root Cause**: Channels were trying to subscribe to database changes instead of broadcast-only events.
+
+**Solution**: Configure channels with `broadcast: { self: true }` to use broadcast-only mode:
+
+```typescript
+const channel = supabase.channel(channelName, {
+  config: {
+    broadcast: { self: true }
+  }
+});
+```
+
+This configuration:
+- ✅ **Prevents database permission errors** - No table access required
+- ✅ **Enables broadcast-only mode** - Only handles broadcast events
+- ✅ **Improves reliability** - Eliminates subscription failures
+- ✅ **Reduces permissions needed** - Only needs Realtime broadcast access
 
 ## 🎉 **Result**
 

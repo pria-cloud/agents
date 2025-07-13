@@ -134,7 +134,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 function subscribeToProgress(conversationId: string) {
   const channelName = `progress:${conversationId}`;
   
-  const channel = supabase.channel(channelName)
+  const channel = supabase.channel(channelName, {
+    config: {
+      broadcast: { self: true }
+    }
+  })
     .on('broadcast', { event: 'update' }, ({ payload }) => {
       console.log('Progress update:', payload);
       updateProgressUI(payload);

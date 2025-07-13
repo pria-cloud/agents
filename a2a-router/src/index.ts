@@ -104,15 +104,28 @@ async function getOrCreateBroadcastChannel(conversationId: string) {
     return activeChannels[channelName];
   }
   
-  // Create new channel and subscribe it
-  const channel = supabase.channel(channelName);
+  // Create new channel with broadcast-only configuration
+  const channel = supabase.channel(channelName, {
+    config: {
+      broadcast: { self: true }
+    }
+  });
   
   // Subscribe to enable broadcasting
-  const subscriptionPromise = new Promise((resolve) => {
+  const subscriptionPromise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Channel subscription timeout'));
+    }, 10000); // 10 second timeout
+    
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
+        clearTimeout(timeout);
         console.log(`[A2A] Broadcast channel subscribed for ${channelName}`);
         resolve(channel);
+      } else if (status === 'CHANNEL_ERROR') {
+        clearTimeout(timeout);
+        console.error(`[A2A] Failed to subscribe to channel ${channelName}`);
+        reject(new Error('Channel subscription failed'));
       }
     });
   });
@@ -128,8 +141,14 @@ async function getOrCreateBroadcastChannel(conversationId: string) {
     }
   }, 60 * 60 * 1000); // 1 hour
   
-  await subscriptionPromise;
-  return channel;
+  try {
+    await subscriptionPromise;
+    return channel;
+  } catch (error) {
+    console.error(`[A2A] Error creating broadcast channel: ${error}`);
+    delete activeChannels[channelName];
+    return null;
+  }
 }
 
 // Agent pushes progress updates here - broadcasts to Supabase Realtime

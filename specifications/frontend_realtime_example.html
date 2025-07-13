@@ -113,7 +113,11 @@
             const channelName = `progress:${conversationId}`;
             log(`Subscribing to channel: ${channelName}`);
 
-            currentChannel = supabase.channel(channelName)
+            currentChannel = supabase.channel(channelName, {
+                config: {
+                    broadcast: { self: true }
+                }
+            })
                 .on('broadcast', { event: 'update' }, ({ payload }) => {
                     log(`Progress update: ${payload.phase} - ${payload.percent}% - ${payload.message}`);
                     updateProgress(payload.percent, `${payload.phase}: ${payload.message}`);
@@ -136,6 +140,8 @@
                         log(`Successfully subscribed to progress updates for ${conversationId}`, 'success');
                     } else if (status === 'CHANNEL_ERROR') {
                         log('Failed to subscribe to progress updates', 'error');
+                    } else if (status === 'CLOSED') {
+                        log('Channel connection closed', 'info');
                     }
                 });
         }
