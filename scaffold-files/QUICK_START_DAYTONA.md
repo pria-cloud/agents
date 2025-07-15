@@ -4,17 +4,22 @@ Deploy your scaffold application to Daytona in under 5 minutes!
 
 ## Your API Key
 ```
-dtn_9a351cb5107703f573434ff12e6571768fd8ad963188b40c8ec65cf0f173be63
+Set your DAYTONA_API_KEY environment variable or pass it as an argument
 ```
 
 ## Option 1: One-Command Deployment
 
-### Using Node.js (Recommended)
+### Using CLI (Recommended - No dependency conflicts)
+```bash
+npm run daytona:deploy:cli
+```
+
+### Using Node.js SDK
 ```bash
 npm run daytona:deploy
 ```
 
-### Using Python
+### Using Python SDK
 ```bash
 npm run daytona:deploy:python
 ```
@@ -43,7 +48,7 @@ chmod +x daytona-deploy.js daytona-deploy.py
 ## Option 3: Daytona Dashboard
 
 1. Go to [Daytona Dashboard](https://daytona.io/dashboard)
-2. Enter API key: `dtn_9a351cb5107703f573434ff12e6571768fd8ad963188b40c8ec65cf0f173be63`
+2. Enter your API key from Daytona dashboard
 3. Click "Create Sandbox"
 4. Enter your git repository URL
 5. Set resources: 2 CPU, 4GB RAM, 8GB disk
@@ -86,6 +91,23 @@ curl -X POST https://your-sandbox-url.daytona.io/api/workspace/github \
 
 ## Troubleshooting
 
+### React Dependency Conflicts (Most Common)
+If you see `ERESOLVE unable to resolve dependency tree` errors:
+
+```bash
+# Option 1: Use CLI-based deployment (avoids SDK conflicts)
+npm run daytona:deploy:cli
+
+# Option 2: Install SDK with legacy peer deps
+npm run daytona:install-sdk
+
+# Option 3: Force install SDK
+npm run daytona:install-sdk-force
+
+# Then retry deployment
+npm run daytona:deploy
+```
+
 ### Prerequisites Missing
 ```bash
 # Ensure you have Node.js or Python
@@ -98,7 +120,7 @@ git status
 
 ### Permission Issues
 ```bash
-chmod +x daytona-deploy.js daytona-deploy.py
+chmod +x daytona-deploy.js daytona-deploy.py daytona-deploy-cli.js
 ```
 
 ### Git Repository Not Found
@@ -107,7 +129,7 @@ chmod +x daytona-deploy.js daytona-deploy.py
 3. Use the repository URL with the deployment script
 
 ### API Key Issues
-- Double-check the API key is exactly: `dtn_9a351cb5107703f573434ff12e6571768fd8ad963188b40c8ec65cf0f173be63`
+- Double-check the API key is correct and not expired
 - Try accessing Daytona dashboard manually to verify the key works
 
 ## Ready to Go! 🎉

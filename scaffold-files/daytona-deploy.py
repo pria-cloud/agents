@@ -10,9 +10,19 @@ import sys
 try:
     from daytona import Daytona, CreateSandboxFromGitParams
 except ImportError:
-    print("Installing Daytona SDK...")
-    os.system("pip install daytona")
-    from daytona import Daytona, CreateSandboxFromGitParams
+    print("📦 Installing Daytona SDK...")
+    result = os.system("pip install daytona")
+    if result != 0:
+        print("💡 Trying with pip3...")
+        result = os.system("pip3 install daytona")
+        if result != 0:
+            print("❌ Failed to install Daytona SDK. Please install manually: pip install daytona")
+            sys.exit(1)
+    try:
+        from daytona import Daytona, CreateSandboxFromGitParams
+    except ImportError:
+        print("❌ Daytona SDK installation failed. Please install manually: pip install daytona")
+        sys.exit(1)
 
 def deploy_scaffold_to_daytona(api_key, repo_url, organization_id=None):
     """Deploy the scaffold application to Daytona"""
@@ -85,11 +95,27 @@ def deploy_scaffold_to_daytona(api_key, repo_url, organization_id=None):
 def create_from_current_directory(api_key):
     """Create a sandbox from the current directory (if it's a git repo)"""
     
-    # Check if current directory is a git repository
-    if not os.path.exists('.git'):
+    # Check if current directory or parent directories contain a git repository
+    git_root = os.getcwd()
+    found_git = False
+    
+    # Check up to 5 parent directories
+    for i in range(5):
+        if os.path.exists(os.path.join(git_root, '.git')):
+            found_git = True
+            break
+        parent = os.path.dirname(git_root)
+        if parent == git_root:  # Reached filesystem root
+            break
+        git_root = parent
+    
+    if not found_git:
         print("❌ Current directory is not a git repository")
         print("💡 Please run this from your scaffold repository root, or provide a git URL")
         return None
+    
+    print(f"📁 Found git repository at: {git_root}")
+    os.chdir(git_root)  # Change to git root directory
     
     # Get the remote origin URL
     try:
@@ -108,7 +134,13 @@ def create_from_current_directory(api_key):
         return None
 
 if __name__ == "__main__":
-    API_KEY = "dtn_9a351cb5107703f573434ff12e6571768fd8ad963188b40c8ec65cf0f173be63"
+    API_KEY = os.environ.get('DAYTONA_API_KEY') or (sys.argv[1] if len(sys.argv) > 1 else None)
+    
+    if not API_KEY:
+        print("❌ DAYTONA_API_KEY environment variable or command line argument required")
+        print("Usage: python3 daytona-deploy.py [your-api-key]")
+        print("   OR: DAYTONA_API_KEY=your-key python3 daytona-deploy.py")
+        sys.exit(1)
     
     print("🌟 Daytona Scaffold Deployment")
     print("=" * 40)

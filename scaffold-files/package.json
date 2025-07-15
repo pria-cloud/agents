@@ -21,9 +21,15 @@
     "daytona:github-preview": "curl -s 'http://localhost:3000/api/workspace/github?url=https://github.com/vercel/next.js-examples' | jq .",
     "daytona:github-import": "curl -s -X POST http://localhost:3000/api/workspace/github -H 'Content-Type: application/json' -d '{\"repoUrl\":\"https://github.com/vercel/next.js-examples\",\"includePatterns\":[\"with-tailwindcss/*\"],\"targetPath\":\"test-import\",\"overwrite\":true}' | jq .",
     "daytona:deploy": "node daytona-deploy.js",
-    "daytona:deploy:python": "python3 daytona-deploy.py"
+    "daytona:deploy:python": "python3 daytona-deploy.py",
+    "daytona:deploy:cli": "node daytona-deploy-cli.js",
+    "daytona:install-sdk": "npm install @daytonaio/sdk --legacy-peer-deps",
+    "daytona:install-sdk-force": "npm install @daytonaio/sdk --force"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.844.0",
+    "@aws-sdk/lib-storage": "^3.844.0",
+    "@daytonaio/sdk": "^0.23.0",
     "@hookform/resolvers": "^5.1.1",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",

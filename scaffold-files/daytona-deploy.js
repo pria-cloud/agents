@@ -5,6 +5,7 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 
@@ -18,11 +19,18 @@ async function installDaytonaSDK() {
     } catch (error) {
         console.log('📦 Installing Daytona SDK...');
         try {
-            await execAsync('npm install @daytonaio/sdk');
+            await execAsync('npm install @daytonaio/sdk --legacy-peer-deps');
             return true;
         } catch (installError) {
             console.error('❌ Failed to install Daytona SDK:', installError.message);
-            return false;
+            console.log('💡 Trying alternative installation method...');
+            try {
+                await execAsync('npm install @daytonaio/sdk --force');
+                return true;
+            } catch (forceError) {
+                console.error('❌ Alternative installation also failed:', forceError.message);
+                return false;
+            }
         }
     }
 }
@@ -44,11 +52,6 @@ async function deployScaffoldToDaytona(apiKey, repoUrl) {
             repository: repoUrl,
             branch: 'main', // or your default branch
             autoStopInterval: 0, // Keep running indefinitely
-            resources: {
-                cpu: 2,    // 2 CPU cores
-                memory: 4, // 4GB RAM
-                disk: 8,   // 8GB disk
-            },
             labels: {
                 project: 'scaffold-app',
                 type: 'nextjs-development',
@@ -112,12 +115,29 @@ async function deployScaffoldToDaytona(apiKey, repoUrl) {
 }
 
 async function createFromCurrentDirectory(apiKey) {
-    // Check if current directory is a git repository
-    if (!fs.existsSync('.git')) {
+    // Check if current directory or parent directories contain a git repository
+    let gitRoot = process.cwd();
+    let foundGit = false;
+    
+    // Check up to 5 parent directories
+    for (let i = 0; i < 5; i++) {
+        if (fs.existsSync(path.join(gitRoot, '.git'))) {
+            foundGit = true;
+            break;
+        }
+        const parent = path.dirname(gitRoot);
+        if (parent === gitRoot) break; // Reached filesystem root
+        gitRoot = parent;
+    }
+    
+    if (!foundGit) {
         console.log('❌ Current directory is not a git repository');
         console.log('💡 Please run this from your scaffold repository root, or provide a git URL');
         return null;
     }
+    
+    console.log(`📁 Found git repository at: ${gitRoot}`);
+    process.chdir(gitRoot); // Change to git root directory
     
     // Get the remote origin URL
     try {
@@ -132,7 +152,14 @@ async function createFromCurrentDirectory(apiKey) {
 }
 
 async function main() {
-    const API_KEY = 'dtn_9a351cb5107703f573434ff12e6571768fd8ad963188b40c8ec65cf0f173be63';
+    const API_KEY = process.env.DAYTONA_API_KEY || process.argv[2];
+    
+    if (!API_KEY) {
+        console.error('❌ DAYTONA_API_KEY environment variable or command line argument required');
+        console.error('Usage: node daytona-deploy.js [your-api-key]');
+        console.error('   OR: DAYTONA_API_KEY=your-key node daytona-deploy.js');
+        process.exit(1);
+    }
     
     console.log('🌟 Daytona Scaffold Deployment');
     console.log('=' .repeat(40));

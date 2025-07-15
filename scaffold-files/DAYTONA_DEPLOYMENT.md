@@ -60,7 +60,7 @@ If you prefer using Daytona's CLI directly:
 curl -Ls https://download.daytona.io/install.sh | bash
 
 # Set your API key
-export DAYTONA_API_KEY="dtn_9a351cb5107703f573434ff12e6571768fd8ad963188b40c8ec65cf0f173be63"
+export DAYTONA_API_KEY="your-daytona-api-key-here"
 
 # Create a sandbox from your repository
 daytona create https://github.com/yourusername/your-scaffold-repo.git
@@ -215,7 +215,7 @@ git fetch origin
 ```
 
 ### API Key Issues
-- Verify your API key is correct: `dtn_9a351cb5107703f573434ff12e6571768fd8ad963188b40c8ec65cf0f173be63`
+- Verify your API key is correct and not expired
 - Check if the key has proper permissions
 - Try accessing Daytona dashboard with the key
 
