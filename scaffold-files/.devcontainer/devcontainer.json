@@ -1,0 +1,64 @@
+{
+  "name": "Next.js Development Environment",
+  "dockerComposeFile": "../docker-compose.dev.yml",
+  "service": "nextjs-dev",
+  "workspaceFolder": "/app",
+  
+  // Forward ports for development and API access
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Next.js Dev Server",
+      "onAutoForward": "notify",
+      "visibility": "public"
+    }
+  },
+  
+  // Post-create command to ensure dependencies are installed
+  "postCreateCommand": "npm install",
+  
+  // VS Code extensions for better development experience
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.vscode-typescript-next",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-json",
+        "ms-playwright.playwright",
+        "unifiedjs.vscode-mdx",
+        "ms-vscode.vscode-eslint"
+      ],
+      "settings": {
+        "typescript.preferences.includePackageJsonAutoImports": "auto",
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        }
+      }
+    }
+  },
+  
+  // Environment variables for Daytona
+  "containerEnv": {
+    "DAYTONA_ENV": "true",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "CHOKIDAR_USEPOLLING": "true",
+    "WATCHPACK_POLLING": "true"
+  },
+  
+  // Features to install in the container
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  
+  // Keep container running
+  "shutdownAction": "none",
+  
+  // Mount type for better performance
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/app,type=bind,consistency=cached"
+  ]
+} 

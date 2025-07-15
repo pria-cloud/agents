@@ -9,7 +9,19 @@
     "lint": "next lint",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up --build",
+    "docker:dev:down": "docker-compose -f docker-compose.dev.yml down",
+    "docker:dev:logs": "docker-compose -f docker-compose.dev.yml logs -f",
+    "daytona:health": "curl -s http://localhost:3000/api/health | jq .",
+    "daytona:workspace": "curl -s http://localhost:3000/api/workspace | jq .",
+    "daytona:test-api": "curl -s -X POST http://localhost:3000/api/workspace/files -H 'Content-Type: application/json' -d '{\"path\":\".\"}' | jq .",
+    "daytona:read-file": "curl -s 'http://localhost:3000/api/workspace/files?path=app/page.tsx' | jq .",
+    "daytona:hot-swap-demo": "node -e \"const client = require('./examples/api-client-example.js'); const c = new client('http://localhost:3000'); c.writeFile('demo-hot-swap.txt', 'Hot swapped at: ' + new Date().toISOString()).then(() => console.log('✅ Hot swap demo complete!'));\"",
+    "daytona:github-preview": "curl -s 'http://localhost:3000/api/workspace/github?url=https://github.com/vercel/next.js-examples' | jq .",
+    "daytona:github-import": "curl -s -X POST http://localhost:3000/api/workspace/github -H 'Content-Type: application/json' -d '{\"repoUrl\":\"https://github.com/vercel/next.js-examples\",\"includePatterns\":[\"with-tailwindcss/*\"],\"targetPath\":\"test-import\",\"overwrite\":true}' | jq .",
+    "daytona:deploy": "node daytona-deploy.js",
+    "daytona:deploy:python": "python3 daytona-deploy.py"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.1.1",

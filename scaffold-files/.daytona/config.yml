@@ -1,0 +1,46 @@
+name: "nextjs-dev-environment"
+description: "Next.js development environment with hot reload and API access"
+
+# Use the devcontainer configuration
+devcontainer: true
+
+# Port forwarding for API access
+ports:
+  - port: 3000
+    protocol: "http"
+    visibility: "public"
+    description: "Next.js development server and API endpoints"
+
+# Environment variables for Daytona
+environment:
+  DAYTONA_ENV: "true"
+  NODE_ENV: "development"
+  NEXT_TELEMETRY_DISABLED: "1"
+  CHOKIDAR_USEPOLLING: "true"
+  WATCHPACK_POLLING: "true"
+
+# Workspace configuration
+workspace:
+  # Auto-start development server
+  postCreateScript: |
+    npm install
+    npm run dev &
+  
+  # Health check endpoint
+  healthCheck:
+    endpoint: "/api/health"
+    port: 3000
+    timeout: 30
+
+# Development features
+features:
+  hotReload: true
+  apiAccess: true
+  fileSync: true
+  terminalAccess: true
+
+# Resource allocation
+resources:
+  cpu: "2"
+  memory: "4Gi"
+  storage: "10Gi" 
