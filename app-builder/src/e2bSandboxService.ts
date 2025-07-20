@@ -323,6 +323,15 @@ export class E2BSandboxService {
    * Stores sandbox information in Supabase
    */
   private async storeSandboxInfo(config: E2BSandboxConfig, sandboxInfo: SandboxInfo): Promise<void> {
+    if (!supabase) {
+      logger.warn({ 
+        event: 'e2b.storage.skipped', 
+        reason: 'Supabase not configured',
+        sandboxId: sandboxInfo.sandboxId
+      }, 'Skipping sandbox info storage - Supabase not configured');
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('sandbox_instances')
@@ -357,6 +366,15 @@ export class E2BSandboxService {
    * Retrieves sandbox information from Supabase
    */
   async getSandboxInfo(conversationId: string, workspaceId: string): Promise<SandboxInfo | null> {
+    if (!supabase) {
+      logger.warn({ 
+        event: 'e2b.retrieval.skipped', 
+        reason: 'Supabase not configured',
+        conversationId
+      }, 'Skipping sandbox info retrieval - Supabase not configured');
+      return null;
+    }
+
     try {
       const { data, error } = await supabase
         .from('sandbox_instances')

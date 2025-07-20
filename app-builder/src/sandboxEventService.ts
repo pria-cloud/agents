@@ -18,6 +18,15 @@ export class SandboxEventService {
    * Broadcasts a sandbox event via Supabase Realtime
    */
   async broadcastSandboxEvent(event: SandboxEvent): Promise<void> {
+    if (!supabase) {
+      logger.warn({ 
+        event: 'sandbox.event.broadcast.skipped', 
+        reason: 'Supabase not configured',
+        conversationId: event.conversation_id
+      }, 'Skipping sandbox event broadcast - Supabase not configured');
+      return;
+    }
+
     try {
       // Create a channel for this conversation
       const channelName = `conversation:${event.conversation_id}`;
@@ -119,6 +128,15 @@ export class SandboxEventService {
    * Stores sandbox event in database for historical purposes
    */
   async storeSandboxEvent(event: SandboxEvent): Promise<void> {
+    if (!supabase) {
+      logger.warn({ 
+        event: 'sandbox.event.store.skipped', 
+        reason: 'Supabase not configured',
+        conversationId: event.conversation_id
+      }, 'Skipping sandbox event storage - Supabase not configured');
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('sandbox_events')
@@ -157,6 +175,15 @@ export class SandboxEventService {
     conversationId: string, 
     workspaceId: string
   ): Promise<SandboxEvent[]> {
+    if (!supabase) {
+      logger.warn({ 
+        event: 'sandbox.event.get.skipped', 
+        reason: 'Supabase not configured',
+        conversationId
+      }, 'Skipping sandbox event retrieval - Supabase not configured');
+      return [];
+    }
+
     try {
       const { data, error } = await supabase
         .from('sandbox_events')
