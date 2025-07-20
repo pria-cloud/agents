@@ -435,41 +435,33 @@ export async function handleAppComposeIntent(
     let sandboxUrl: string | null = null;
     try {
       const workspaceId = appSpec?.workspace_id || '';
-      if (workspaceId) {
-        await sendProgress(conversationId, 'sandbox', 95, 'Creating live preview sandbox...');
-        
-        const e2bService = new E2BSandboxService();
-        const sandboxInfo = await e2bService.createSandbox(
-          allGeneratedFiles.map(f => ({
-            filePath: f.filePath,
-            content: f.content,
-            operation: 'created'
-          })),
-          dependencies,
-          {
-            templateId: process.env.E2B_TEMPLATE_ID || 'xeavhq5mira8no0bq688', // baseline-project template
-            teamId: process.env.E2B_TEAM_ID || 'd9ae965a-2a35-4a01-bc6e-6ff76faaa12c',
-            workspaceId,
-            conversationId
-          }
-        );
+      await sendProgress(conversationId, 'sandbox', 95, 'Creating live preview sandbox...');
+      
+      const e2bService = new E2BSandboxService();
+      const sandboxInfo = await e2bService.createSandbox(
+        allGeneratedFiles.map(f => ({
+          filePath: f.filePath,
+          content: f.content,
+          operation: 'created'
+        })),
+        dependencies,
+        {
+          templateId: process.env.E2B_TEMPLATE_ID || 'xeavhq5mira8no0bq688', // baseline-project template
+          teamId: process.env.E2B_TEAM_ID || 'd9ae965a-2a35-4a01-bc6e-6ff76faaa12c',
+          workspaceId,
+          conversationId
+        }
+      );
 
-        sandboxUrl = sandboxInfo.sandboxUrl;
-        await sendProgress(conversationId, 'sandbox', 100, `Live preview ready: ${sandboxUrl}`);
-        
-        logger.info({ 
-          event: 'e2b.sandbox.success', 
-          sandboxUrl, 
-          conversationId,
-          workspaceId
-        }, 'E2B sandbox created successfully');
-      } else {
-        logger.warn({ 
-          event: 'e2b.sandbox.skip', 
-          conversationId,
-          reason: 'No workspace_id available'
-        }, 'Skipping E2B sandbox creation - no workspace_id');
-      }
+      sandboxUrl = sandboxInfo.sandboxUrl;
+      await sendProgress(conversationId, 'sandbox', 100, `Live preview ready: ${sandboxUrl}`);
+      
+      logger.info({ 
+        event: 'e2b.sandbox.success', 
+        sandboxUrl, 
+        conversationId,
+        workspaceId: workspaceId || 'none'
+      }, 'E2B sandbox created successfully');
     } catch (error) {
       logger.error({ 
         event: 'e2b.sandbox.error', 
