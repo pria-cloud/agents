@@ -98,7 +98,8 @@ export class E2BSandboxService {
       // Start the development server
       await this.startDevServer(sandbox)
 
-      const sandboxUrl = `https://${sandboxId}-3000.e2b.dev`
+      const host = sandbox.getHost(3000)
+      const sandboxUrl = `https://${host}`
       
       const sandboxInfo: SandboxInfo = {
         sandboxId,
