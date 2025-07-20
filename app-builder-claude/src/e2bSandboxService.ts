@@ -234,9 +234,9 @@ export class E2BSandboxService {
         sandboxId: sandbox.sandboxId
       }, 'Installing dependencies')
 
-      const result = await sandbox.commands.run('npm install', {
+      const result = await sandbox.commands.run('npm install --legacy-peer-deps', {
         cwd: '/code',
-        timeoutMs: 120000 // 2 minutes
+        timeoutMs: 180000 // 3 minutes for better compatibility
       })
 
       if (result.exitCode !== 0) {
@@ -244,8 +244,14 @@ export class E2BSandboxService {
           event: 'e2b.dependencies.warning', 
           exitCode: result.exitCode,
           stderr: result.stderr,
+          stdout: result.stdout,
           sandboxId: sandbox.sandboxId
         }, 'Dependencies installation completed with warnings')
+      } else {
+        logger.info({ 
+          event: 'e2b.dependencies.success', 
+          sandboxId: sandbox.sandboxId
+        }, 'Dependencies installed successfully')
       }
 
     } catch (error) {
@@ -254,6 +260,8 @@ export class E2BSandboxService {
         error: error instanceof Error ? error.message : String(error),
         sandboxId: sandbox.sandboxId
       }, 'Failed to install dependencies')
+      
+      // Don't throw error, continue with other setup steps
     }
   }
 
@@ -278,8 +286,14 @@ export class E2BSandboxService {
           event: 'e2b.shadcn.warning', 
           exitCode: result.exitCode,
           stderr: result.stderr,
+          stdout: result.stdout,
           sandboxId: sandbox.sandboxId
         }, 'Shadcn installation completed with warnings')
+      } else {
+        logger.info({ 
+          event: 'e2b.shadcn.success', 
+          sandboxId: sandbox.sandboxId
+        }, 'Shadcn components installed successfully')
       }
 
     } catch (error) {
@@ -288,6 +302,8 @@ export class E2BSandboxService {
         error: error instanceof Error ? error.message : String(error),
         sandboxId: sandbox.sandboxId
       }, 'Failed to install shadcn components')
+      
+      // Don't throw error, continue with other setup steps
     }
   }
 
