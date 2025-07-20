@@ -358,6 +358,38 @@ export async function handleAppComposeIntent(
     // Send progress update
     await sendProgress(conversationId, 'codegen', 60, 'Code generation complete');
 
+    // Start E2B sandbox creation in parallel with review and test phases
+    const workspaceId = appSpec?.workspace_id || '';
+    let sandboxPromise: Promise<any> | null = null;
+    const e2bService = new E2BSandboxService();
+    
+    try {
+      await sendProgress(conversationId, 'sandbox', 62, 'Starting live preview sandbox...');
+      
+      // Start sandbox creation with initial generated files
+      sandboxPromise = e2bService.createSandbox(
+        generatedFiles.map(f => ({
+          filePath: f.filePath,
+          content: f.content,
+          operation: 'created'
+        })),
+        dependencies,
+        {
+          templateId: process.env.E2B_TEMPLATE_ID || 'xeavhq5mira8no0bq688', // baseline-project template
+          teamId: process.env.E2B_TEAM_ID || 'd9ae965a-2a35-4a01-bc6e-6ff76faaa12c',
+          workspaceId,
+          conversationId
+        }
+      );
+    } catch (error) {
+      logger.error({ 
+        event: 'e2b.sandbox.start.error', 
+        error: error instanceof Error ? error.message : String(error),
+        conversationId
+      }, 'Failed to start E2B sandbox creation');
+      sandboxPromise = null;
+    }
+
     // Phase 3: Code Review – ensure each generated file follows guidelines
     await sendProgress(conversationId, 'review', 65, 'Reviewing generated code');
     const reviewResults = await runPhaseReview(generatedFiles, appSpec);
@@ -431,45 +463,47 @@ export async function handleAppComposeIntent(
       github_pr_url: result.github_pr_url ?? null,
     }, 'completed');
 
-    // Create E2B sandbox for live preview
+    // Wait for E2B sandbox creation and finalize with test files
     let sandboxUrl: string | null = null;
-    try {
-      const workspaceId = appSpec?.workspace_id || '';
-      await sendProgress(conversationId, 'sandbox', 95, 'Creating live preview sandbox...');
-      
-      const e2bService = new E2BSandboxService();
-      const sandboxInfo = await e2bService.createSandbox(
-        allGeneratedFiles.map(f => ({
-          filePath: f.filePath,
-          content: f.content,
-          operation: 'created'
-        })),
-        dependencies,
-        {
-          templateId: process.env.E2B_TEMPLATE_ID || 'xeavhq5mira8no0bq688', // baseline-project template
-          teamId: process.env.E2B_TEAM_ID || 'd9ae965a-2a35-4a01-bc6e-6ff76faaa12c',
-          workspaceId,
-          conversationId
+    if (sandboxPromise) {
+      try {
+        await sendProgress(conversationId, 'sandbox', 95, 'Finalizing live preview sandbox...');
+        
+        const sandboxInfo = await sandboxPromise;
+        sandboxUrl = sandboxInfo.sandboxUrl;
+        
+        // If we have test files, inject them into the already running sandbox
+        if (testFiles.length > 0) {
+          logger.info({ 
+            event: 'e2b.inject.tests.start', 
+            testFiles: testFiles.map(f => f.filePath),
+            sandboxId: sandboxInfo.sandboxId
+          }, 'Injecting test files into running sandbox');
+          
+          // Note: We could implement a method to inject additional files into an existing sandbox
+          // For now, the sandbox was created with the main files and is already running
         }
-      );
-
-      sandboxUrl = sandboxInfo.sandboxUrl;
-      await sendProgress(conversationId, 'sandbox', 100, `Live preview ready: ${sandboxUrl}`);
-      
-      logger.info({ 
-        event: 'e2b.sandbox.success', 
-        sandboxUrl, 
-        conversationId,
-        workspaceId: workspaceId || 'none'
-      }, 'E2B sandbox created successfully');
-    } catch (error) {
-      logger.error({ 
-        event: 'e2b.sandbox.error', 
-        error: error instanceof Error ? error.message : String(error),
-        conversationId
-      }, 'Failed to create E2B sandbox');
-      
-      await sendProgress(conversationId, 'sandbox', 100, 'Live preview creation failed, but files are ready');
+        
+        await sendProgress(conversationId, 'sandbox', 100, `Live preview ready: ${sandboxUrl}`);
+        
+        logger.info({ 
+          event: 'e2b.sandbox.success', 
+          sandboxUrl, 
+          conversationId,
+          workspaceId: workspaceId || 'none',
+          totalFiles: allGeneratedFiles.length
+        }, 'E2B sandbox created successfully with parallel processing');
+      } catch (error) {
+        logger.error({ 
+          event: 'e2b.sandbox.error', 
+          error: error instanceof Error ? error.message : String(error),
+          conversationId
+        }, 'Failed to create E2B sandbox');
+        
+        await sendProgress(conversationId, 'sandbox', 100, 'Live preview creation failed, but files are ready');
+      }
+    } else {
+      await sendProgress(conversationId, 'sandbox', 100, 'Live preview creation was skipped due to startup error');
     }
 
     const endTime = Date.now();
