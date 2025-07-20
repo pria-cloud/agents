@@ -6,6 +6,7 @@ import { ConversationManager } from './conversationManager';
 import { AdaptivePromptStrategy } from './adaptivePromptStrategy';
 import { A2AClient } from './a2aClient';
 import { sendProgress } from './progressService';
+import { E2BSandboxService } from './e2bSandboxService';
 
 const logger = pino({
   name: 'app-builder-claude',
@@ -64,6 +65,57 @@ app.post('/api/app-compose', async (req, res) => {
       );
     }
 
+    // Create E2B sandbox if conversation is completed
+    let sandboxUrl: string | null = null;
+    if (result.context.currentStage === 'completed' && result.files && result.files.length > 0) {
+      try {
+        const workspaceId = appSpec?.workspace_id || '';
+        if (workspaceId) {
+          await sendProgress(conversationId, 'sandbox', 95, 'Creating live preview sandbox...');
+          
+          const e2bService = new E2BSandboxService();
+          const sandboxInfo = await e2bService.createSandbox(
+            result.files.map(f => ({
+              filePath: f.filePath,
+              content: f.content,
+              operation: f.operation || 'created'
+            })),
+            [], // No dependencies extraction in conversational mode yet
+            {
+              templateId: process.env.E2B_TEMPLATE_ID || 'xeavhq5mira8no0bq688', // baseline-project template
+              teamId: process.env.E2B_TEAM_ID || 'd9ae965a-2a35-4a01-bc6e-6ff76faaa12c',
+              workspaceId,
+              conversationId
+            }
+          );
+
+          sandboxUrl = sandboxInfo.sandboxUrl;
+          await sendProgress(conversationId, 'sandbox', 100, `Live preview ready: ${sandboxUrl}`);
+          
+          logger.info({ 
+            event: 'e2b.sandbox.success', 
+            sandboxUrl, 
+            conversationId,
+            workspaceId
+          }, 'E2B sandbox created successfully');
+        } else {
+          logger.warn({ 
+            event: 'e2b.sandbox.skip', 
+            conversationId,
+            reason: 'No workspace_id available'
+          }, 'Skipping E2B sandbox creation - no workspace_id');
+        }
+      } catch (error) {
+        logger.error({ 
+          event: 'e2b.sandbox.error', 
+          error: error.message,
+          conversationId
+        }, 'Failed to create E2B sandbox');
+        
+        await sendProgress(conversationId, 'sandbox', 100, 'Live preview creation failed, but files are ready');
+      }
+    }
+
     // Return conversational response
     res.json({
       success: result.success,
@@ -73,6 +125,7 @@ app.post('/api/app-compose', async (req, res) => {
       needsUserInput: result.needsUserInput,
       stage: result.context.currentStage,
       error: result.error,
+      sandbox_url: sandboxUrl,
     });
 
     logger.info({ event: 'app.compose.complete', conversationId, success: result.success }, 'App composition completed');
