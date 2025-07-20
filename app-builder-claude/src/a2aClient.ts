@@ -43,4 +43,18 @@ export async function sendIntent(msg: IntentMessage) {
     console.error('A2A intent error:', err?.response?.data || err.message);
     throw new Error('A2A intent send failed');
   }
+}
+
+export class A2AClient {
+  constructor() {
+    // Mock implementation
+  }
+  
+  async registerAgent(registration: AgentRegistration) {
+    return registerAgent(registration);
+  }
+  
+  async sendIntent(msg: IntentMessage) {
+    return sendIntent(msg);
+  }
 } 

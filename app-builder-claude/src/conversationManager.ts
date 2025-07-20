@@ -105,10 +105,7 @@ export class ConversationManager {
     const conversationPrompt = this.buildConversationPrompt(context);
 
     // Get Claude's response
-    const response = await this.claudeClient.query(conversationPrompt, {
-      sessionId: context.sessionId,
-      systemPrompt,
-    });
+    const response = await this.claudeClient.query(conversationPrompt, context.sessionId);
 
     // Add assistant response to history
     context.conversationHistory.push({ role: 'assistant', content: response.content });
@@ -246,7 +243,15 @@ Remember to follow PRIA guidelines and maintain the conversational flow. Use you
     progressUpdate?: { stage: string; progress: number; message: string };
   }> {
     // Analyze response content and tool usage to determine what happened
-    const analysis = {
+    const analysis: {
+      nextStage: ConversationContext['currentStage'];
+      requirements?: any;
+      technicalDecisions?: any;
+      files: any[];
+      complianceChecks: string[];
+      needsUserInput: boolean;
+      progressUpdate?: { stage: string; progress: number; message: string };
+    } = {
       nextStage: context.currentStage,
       needsUserInput: true,
       files: [] as any[],

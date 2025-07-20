@@ -9,12 +9,17 @@
     "build": "tsc",
     "dev": "ts-node src/index.ts"
   },
-  "keywords": ["pria", "claude", "app-builder", "a2a"],
+  "keywords": [
+    "pria",
+    "claude",
+    "app-builder",
+    "a2a"
+  ],
   "author": "PRIA Engineering",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@anthropic-ai/claude-code": "^0.4.0",
+    "@anthropic-ai/claude-code": "^1.0.56",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/auto-instrumentations-node": "^0.60.1",
     "@opentelemetry/exporter-prometheus": "^0.202.0",
@@ -26,6 +31,7 @@
     "@types/node": "^24.0.3",
     "@vercel/functions": "^2.2.3",
     "axios": "^1.10.0",
+    "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "e2b": "^1.0.2",
     "express": "^5.1.0",
@@ -36,6 +42,7 @@
     "typescript": "^5.5.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^29.5.12",
     "@types/node-fetch": "^2.6.12",
@@ -43,4 +50,4 @@
     "ts-jest": "^29.1.5",
     "typescript": "^5.4.5"
   }
-} 
+}

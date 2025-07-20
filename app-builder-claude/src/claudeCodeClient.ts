@@ -1,4 +1,4 @@
-import { query, type SDKMessage, ClaudeCodeOptions } from '@anthropic-ai/claude-code';
+import { query, type SDKMessage } from '@anthropic-ai/claude-code';
 import pino from 'pino';
 
 const logger = pino({
@@ -8,211 +8,135 @@ const logger = pino({
 
 export interface ClaudeCodeSession {
   sessionId: string;
-  messages: SDKMessage[];
-  totalCost: number;
   isActive: boolean;
+  messages: SDKMessage[];
 }
 
 export interface ClaudeCodeResponse {
-  success: boolean;
-  result?: string;
-  messages: SDKMessage[];
-  sessionId?: string;
-  totalCost: number;
-  error?: string;
+  content: string;
+  toolUse?: {
+    name: string;
+    parameters: any;
+  }[];
+  progressUpdate?: {
+    stage: string;
+    progress: number;
+    message: string;
+  };
+  cost?: number;
+}
+
+export interface ClaudeCodeOptions {
+  apiKey?: string;
+  maxTurns?: number;
+  systemPrompt?: string;
 }
 
 export class ClaudeCodeClient {
+  private options: ClaudeCodeOptions;
   private sessions: Map<string, ClaudeCodeSession> = new Map();
-  private defaultOptions: ClaudeCodeOptions;
 
-  constructor(options: Partial<ClaudeCodeOptions> = {}) {
-    this.defaultOptions = {
+  constructor(options: ClaudeCodeOptions = {}) {
+    this.options = {
       maxTurns: 10,
-      allowedTools: ['Read', 'Write', 'Bash', 'Edit'],
-      permissionMode: 'acceptEdits',
-      ...options,
+      ...options
     };
+    logger.info('Initializing Claude Code Client');
   }
 
-  /**
-   * Start a new conversation with Claude Code SDK
-   */
-  async startConversation(
-    prompt: string,
-    options: Partial<ClaudeCodeOptions> = {}
-  ): Promise<ClaudeCodeResponse> {
-    const sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+  async query(prompt: string, sessionId?: string): Promise<ClaudeCodeResponse> {
+    logger.info('Claude Code query called', { prompt: prompt.substring(0, 100) + '...', sessionId });
     
-    logger.info({ event: 'claude.conversation.start', sessionId, prompt }, 'Starting new Claude Code conversation');
+    const abortController = new AbortController();
+    const messages: SDKMessage[] = [];
 
     try {
-      const messages: SDKMessage[] = [];
-      let totalCost = 0;
-      let result = '';
-
-      const queryOptions: ClaudeCodeOptions = {
-        ...this.defaultOptions,
-        ...options,
-      };
-
-      for await (const message of query({ prompt, options: queryOptions })) {
-        messages.push(message);
-        
-        if (message.type === 'result') {
-          if (message.subtype === 'success') {
-            result = message.result;
-            totalCost = message.total_cost_usd;
-          } else {
-            logger.error({ event: 'claude.conversation.error', sessionId, message }, 'Claude Code conversation failed');
-            return {
-              success: false,
-              messages,
-              totalCost,
-              error: `Conversation failed: ${message.subtype}`,
-            };
-          }
+      for await (const message of query({
+        prompt,
+        abortController,
+        options: {
+          maxTurns: this.options.maxTurns || 10,
+          ...(this.options.systemPrompt && { systemPrompt: this.options.systemPrompt })
         }
+      })) {
+        messages.push(message);
+        logger.debug('Received message', { type: message.type });
       }
 
-      // Store session
-      const session: ClaudeCodeSession = {
-        sessionId,
-        messages,
-        totalCost,
-        isActive: true,
-      };
-      this.sessions.set(sessionId, session);
+      // Update session if provided
+      if (sessionId && this.sessions.has(sessionId)) {
+        const session = this.sessions.get(sessionId)!;
+        session.messages.push(...messages);
+      }
 
-      logger.info({ 
-        event: 'claude.conversation.success', 
-        sessionId, 
-        totalCost,
-        messageCount: messages.length 
-      }, 'Claude Code conversation completed successfully');
+      // Extract content from assistant messages
+      const assistantMessages = messages.filter(m => m.type === 'assistant');
+      const content = assistantMessages.map(m => {
+        const msg = m.message;
+        if (typeof msg.content === 'string') {
+          return msg.content;
+        } else if (Array.isArray(msg.content)) {
+          return msg.content.map((c: any) => c.type === 'text' ? c.text : '').join('\n');
+        }
+        return '';
+      }).join('\n');
+
+      // Look for tool use in assistant messages
+      const toolUse: any[] = [];
+      assistantMessages.forEach(m => {
+        const msg = m.message;
+        if (Array.isArray(msg.content)) {
+          msg.content.forEach((c: any) => {
+            if (c.type === 'tool_use') {
+              toolUse.push({
+                name: c.name,
+                parameters: c.input
+              });
+            }
+          });
+        }
+      });
+
+      // Extract cost from result messages
+      const resultMessages = messages.filter(m => m.type === 'result');
+      const totalCost = resultMessages.reduce((sum, m) => sum + (m.total_cost_usd || 0), 0);
 
       return {
-        success: true,
-        result,
-        messages,
-        sessionId,
-        totalCost,
+        content,
+        toolUse: toolUse.length > 0 ? toolUse : undefined,
+        cost: totalCost > 0 ? totalCost : undefined
       };
-    } catch (error: any) {
-      logger.error({ event: 'claude.conversation.error', sessionId, error: error.message }, 'Claude Code conversation failed');
-      return {
-        success: false,
-        messages: [],
-        totalCost: 0,
-        error: error.message,
-      };
+
+    } catch (error) {
+      logger.error('Claude Code query failed', { error: error instanceof Error ? error.message : String(error) });
+      throw error;
     }
   }
 
-  /**
-   * Continue an existing conversation
-   */
-  async continueConversation(
-    sessionId: string,
-    prompt: string,
-    options: Partial<ClaudeCodeOptions> = {}
-  ): Promise<ClaudeCodeResponse> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      return {
-        success: false,
-        messages: [],
-        totalCost: 0,
-        error: `Session ${sessionId} not found`,
-      };
-    }
+  async createSession(): Promise<ClaudeCodeSession> {
+    const sessionId = Math.random().toString(36).substring(7);
+    const session: ClaudeCodeSession = {
+      sessionId,
+      isActive: true,
+      messages: []
+    };
+    
+    this.sessions.set(sessionId, session);
+    logger.info('Created Claude Code session', { sessionId });
+    
+    return session;
+  }
 
-    logger.info({ event: 'claude.conversation.continue', sessionId, prompt }, 'Continuing Claude Code conversation');
-
-    try {
-      const messages: SDKMessage[] = [...session.messages];
-      let totalCost = session.totalCost;
-      let result = '';
-
-      const queryOptions: ClaudeCodeOptions = {
-        ...this.defaultOptions,
-        ...options,
-      };
-
-      for await (const message of query({ prompt, options: queryOptions })) {
-        messages.push(message);
-        
-        if (message.type === 'result') {
-          if (message.subtype === 'success') {
-            result = message.result;
-            totalCost += message.total_cost_usd;
-          } else {
-            logger.error({ event: 'claude.conversation.error', sessionId, message }, 'Claude Code conversation continuation failed');
-            return {
-              success: false,
-              messages,
-              totalCost,
-              error: `Conversation continuation failed: ${message.subtype}`,
-            };
-          }
-        }
-      }
-
-      // Update session
-      session.messages = messages;
-      session.totalCost = totalCost;
-      this.sessions.set(sessionId, session);
-
-      logger.info({ 
-        event: 'claude.conversation.continue.success', 
-        sessionId, 
-        totalCost,
-        messageCount: messages.length 
-      }, 'Claude Code conversation continuation completed successfully');
-
-      return {
-        success: true,
-        result,
-        messages,
-        sessionId,
-        totalCost,
-      };
-    } catch (error: any) {
-      logger.error({ event: 'claude.conversation.continue.error', sessionId, error: error.message }, 'Claude Code conversation continuation failed');
-      return {
-        success: false,
-        messages: session.messages,
-        totalCost: session.totalCost,
-        error: error.message,
-      };
+  async endSession(sessionId: string): Promise<void> {
+    if (this.sessions.has(sessionId)) {
+      const session = this.sessions.get(sessionId)!;
+      session.isActive = false;
+      this.sessions.delete(sessionId);
+      logger.info('Ended Claude Code session', { sessionId });
     }
   }
 
-  /**
-   * Get session information
-   */
   getSession(sessionId: string): ClaudeCodeSession | undefined {
     return this.sessions.get(sessionId);
   }
-
-  /**
-   * Close and cleanup session
-   */
-  closeSession(sessionId: string): boolean {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.isActive = false;
-      this.sessions.delete(sessionId);
-      logger.info({ event: 'claude.session.closed', sessionId }, 'Claude Code session closed');
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Get all active sessions
-   */
-  getActiveSessions(): ClaudeCodeSession[] {
-    return Array.from(this.sessions.values()).filter(session => session.isActive);
-  }
-} 
+}

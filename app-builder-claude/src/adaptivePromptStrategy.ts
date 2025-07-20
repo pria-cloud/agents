@@ -400,7 +400,7 @@ Remember to maintain PRIA compliance throughout and use your tools when appropri
   shouldCheckCompliance(context: PromptContext): boolean {
     return context.stage === 'building' || 
            context.stage === 'reviewing' || 
-           (context.generatedFiles && context.generatedFiles.length > 0);
+           (context.generatedFiles && context.generatedFiles.length > 0) || false;
   }
 
   /**

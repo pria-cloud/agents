@@ -46,7 +46,7 @@ export class SandboxEventService {
     } catch (error) {
       logger.error({ 
         event: 'sandbox.event.broadcast.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         conversationId: event.conversation_id
       }, 'Failed to broadcast sandbox event');
     }
@@ -136,7 +136,7 @@ export class SandboxEventService {
       if (error) {
         logger.error({ 
           event: 'sandbox.event.store.error', 
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
           conversationId: event.conversation_id
         }, 'Failed to store sandbox event');
       }
@@ -144,7 +144,7 @@ export class SandboxEventService {
     } catch (error) {
       logger.error({ 
         event: 'sandbox.event.store.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         conversationId: event.conversation_id
       }, 'Failed to store sandbox event');
     }
@@ -168,7 +168,7 @@ export class SandboxEventService {
       if (error) {
         logger.error({ 
           event: 'sandbox.event.get.error', 
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
           conversationId
         }, 'Failed to get sandbox events');
         return [];
@@ -188,7 +188,7 @@ export class SandboxEventService {
     } catch (error) {
       logger.error({ 
         event: 'sandbox.event.get.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         conversationId
       }, 'Failed to get sandbox events');
       return [];

@@ -70,8 +70,7 @@ export class E2BSandboxService {
       )
 
       // Create sandbox instance
-      const sandbox = await Sandbox.create({
-        template: this.templateId,
+      const sandbox = await Sandbox.create(this.templateId, {
         timeoutMs: 300000, // 5 minutes timeout
       })
 
@@ -133,7 +132,7 @@ export class E2BSandboxService {
     } catch (error) {
       logger.error({ 
         event: 'e2b.sandbox.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         conversationId: config.conversationId,
         templateId: this.templateId
       }, 'Failed to create E2B sandbox')
@@ -142,11 +141,11 @@ export class E2BSandboxService {
       await this.eventService.broadcastSandboxFailed(
         config.conversationId,
         config.workspaceId,
-        error.message,
+        error instanceof Error ? error.message : String(error),
         'Live preview creation failed'
       )
 
-      throw new Error(`Failed to create E2B sandbox: ${error.message}`)
+      throw new Error(`Failed to create E2B sandbox: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -181,7 +180,7 @@ export class E2BSandboxService {
         logger.error({ 
           event: 'e2b.file.error', 
           filePath: file.filePath,
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
           sandboxId: sandbox.sandboxId
         }, 'Failed to inject file')
         
@@ -219,7 +218,7 @@ export class E2BSandboxService {
     } catch (error) {
       logger.error({ 
         event: 'e2b.dependencies.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         sandboxId: sandbox.sandboxId
       }, 'Failed to update dependencies')
     }
@@ -235,10 +234,9 @@ export class E2BSandboxService {
         sandboxId: sandbox.sandboxId
       }, 'Installing dependencies')
 
-      const result = await sandbox.commands.run({
-        cmd: 'npm install',
+      const result = await sandbox.commands.run('npm install', {
         cwd: '/code',
-        timeout: 120000 // 2 minutes
+        timeoutMs: 120000 // 2 minutes
       })
 
       if (result.exitCode !== 0) {
@@ -253,7 +251,7 @@ export class E2BSandboxService {
     } catch (error) {
       logger.error({ 
         event: 'e2b.dependencies.install.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         sandboxId: sandbox.sandboxId
       }, 'Failed to install dependencies')
     }
@@ -270,10 +268,9 @@ export class E2BSandboxService {
       }, 'Installing shadcn components')
 
       // Install all shadcn components
-      const result = await sandbox.commands.run({
-        cmd: 'npx shadcn@latest add --all --yes',
+      const result = await sandbox.commands.run('npx shadcn@latest add --all --yes', {
         cwd: '/code',
-        timeout: 180000 // 3 minutes timeout
+        timeoutMs: 180000 // 3 minutes timeout
       })
 
       if (result.exitCode !== 0) {
@@ -288,7 +285,7 @@ export class E2BSandboxService {
     } catch (error) {
       logger.error({ 
         event: 'e2b.shadcn.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         sandboxId: sandbox.sandboxId
       }, 'Failed to install shadcn components')
     }
@@ -305,8 +302,7 @@ export class E2BSandboxService {
       }, 'Starting development server')
 
       // Start dev server in background
-      sandbox.commands.run({
-        cmd: 'npm run dev',
+      sandbox.commands.run('npm run dev', {
         cwd: '/code',
         background: true
       })
@@ -317,7 +313,7 @@ export class E2BSandboxService {
     } catch (error) {
       logger.error({ 
         event: 'e2b.server.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         sandboxId: sandbox.sandboxId
       }, 'Failed to start development server')
     }
@@ -343,7 +339,7 @@ export class E2BSandboxService {
       if (error) {
         logger.error({ 
           event: 'e2b.storage.error', 
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
           sandboxId: sandboxInfo.sandboxId
         }, 'Failed to store sandbox info')
       }
@@ -351,7 +347,7 @@ export class E2BSandboxService {
     } catch (error) {
       logger.error({ 
         event: 'e2b.storage.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         sandboxId: sandboxInfo.sandboxId
       }, 'Failed to store sandbox info')
     }
@@ -385,7 +381,7 @@ export class E2BSandboxService {
     } catch (error) {
       logger.error({ 
         event: 'e2b.retrieval.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         conversationId
       }, 'Failed to retrieve sandbox info')
       return null

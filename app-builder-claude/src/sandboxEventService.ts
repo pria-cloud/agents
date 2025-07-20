@@ -1,10 +1,5 @@
 import { supabase } from './supabase'
-import pino from 'pino'
-
-const logger = pino({
-  name: 'app-builder-claude-sandbox-events',
-  level: process.env.LOG_LEVEL || 'info',
-})
+import { logger } from './logger'
 
 export interface SandboxEvent {
   event_type: 'sandbox_created' | 'sandbox_ready' | 'sandbox_failed'
@@ -51,7 +46,7 @@ export class SandboxEventService {
     } catch (error) {
       logger.error({ 
         event: 'sandbox.event.broadcast.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         conversationId: event.conversation_id
       }, 'Failed to broadcast sandbox event');
     }
@@ -118,5 +113,85 @@ export class SandboxEventService {
     };
 
     await this.broadcastSandboxEvent(event);
+  }
+
+  /**
+   * Stores sandbox event in database for historical purposes
+   */
+  async storeSandboxEvent(event: SandboxEvent): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('sandbox_events')
+        .insert({
+          event_type: event.event_type,
+          conversation_id: event.conversation_id,
+          workspace_id: event.workspace_id,
+          sandbox_id: event.sandbox_id,
+          sandbox_url: event.sandbox_url,
+          message: event.message,
+          metadata: event.metadata || {},
+          created_at: event.timestamp
+        });
+
+      if (error) {
+        logger.error({ 
+          event: 'sandbox.event.store.error', 
+          error: error instanceof Error ? error.message : String(error),
+          conversationId: event.conversation_id
+        }, 'Failed to store sandbox event');
+      }
+
+    } catch (error) {
+      logger.error({ 
+        event: 'sandbox.event.store.error', 
+        error: error instanceof Error ? error.message : String(error),
+        conversationId: event.conversation_id
+      }, 'Failed to store sandbox event');
+    }
+  }
+
+  /**
+   * Gets sandbox events for a conversation
+   */
+  async getSandboxEvents(
+    conversationId: string, 
+    workspaceId: string
+  ): Promise<SandboxEvent[]> {
+    try {
+      const { data, error } = await supabase
+        .from('sandbox_events')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        logger.error({ 
+          event: 'sandbox.event.get.error', 
+          error: error instanceof Error ? error.message : String(error),
+          conversationId
+        }, 'Failed to get sandbox events');
+        return [];
+      }
+
+      return data.map(row => ({
+        event_type: row.event_type,
+        conversation_id: row.conversation_id,
+        workspace_id: row.workspace_id,
+        sandbox_id: row.sandbox_id,
+        sandbox_url: row.sandbox_url,
+        message: row.message,
+        timestamp: row.created_at,
+        metadata: row.metadata
+      }));
+
+    } catch (error) {
+      logger.error({ 
+        event: 'sandbox.event.get.error', 
+        error: error instanceof Error ? error.message : String(error),
+        conversationId
+      }, 'Failed to get sandbox events');
+      return [];
+    }
   }
 }

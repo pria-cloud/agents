@@ -473,7 +473,7 @@ export async function handleAppComposeIntent(
     } catch (error) {
       logger.error({ 
         event: 'e2b.sandbox.error', 
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
         conversationId
       }, 'Failed to create E2B sandbox');
       

@@ -108,7 +108,7 @@ app.post('/api/app-compose', async (req, res) => {
       } catch (error) {
         logger.error({ 
           event: 'e2b.sandbox.error', 
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
           conversationId
         }, 'Failed to create E2B sandbox');
         
@@ -190,25 +190,15 @@ app.delete('/api/conversation/:conversationId', (req, res) => {
 app.post('/api/register-agent', async (req, res) => {
   try {
     const agentConfig = {
-      id: 'app-builder-claude',
-      name: 'App Builder Claude',
-      description: 'Conversational app builder using Claude Code SDK',
+      agent_name: 'App Builder Claude',
       version: '1.0.0',
       capabilities: [
         'app.compose',
         'conversation.continue',
         'compliance.check',
       ],
-      endpoints: {
-        'app.compose': '/api/app-compose',
-        'conversation.continue': '/api/app-compose',
-        'compliance.check': '/api/compliance-check',
-      },
-      metadata: {
-        approach: 'conversational',
-        sdk: 'claude-code',
-        features: ['adaptive-prompting', 'real-time-compliance', 'contextual-guidance'],
-      },
+      endpoint_url: `http://localhost:${port}`,
+      supports_mcp: false,
     };
 
     const result = await a2aClient.registerAgent(agentConfig);
@@ -225,22 +215,12 @@ app.listen(port, () => {
   
   // Register with A2A router on startup
   a2aClient.registerAgent({
-    id: 'app-builder-claude',
-    name: 'App Builder Claude',
-    description: 'Conversational app builder using Claude Code SDK',
+    agent_name: 'App Builder Claude',
     version: '1.0.0',
     capabilities: ['app.compose', 'conversation.continue', 'compliance.check'],
-    endpoints: {
-      'app.compose': '/api/app-compose',
-      'conversation.continue': '/api/app-compose',
-      'compliance.check': '/api/compliance-check',
-    },
-    metadata: {
-      approach: 'conversational',
-      sdk: 'claude-code',
-      features: ['adaptive-prompting', 'real-time-compliance', 'contextual-guidance'],
-    },
-  }).catch(error => {
+    endpoint_url: `http://localhost:${port}`,
+    supports_mcp: false,
+  }).catch((error: any) => {
     logger.error({ event: 'agent.register.startup.error', error: error.message }, 'Failed to register agent on startup');
   });
 });
