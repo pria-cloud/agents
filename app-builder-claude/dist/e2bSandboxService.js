@@ -39,7 +39,7 @@ class E2BSandboxService {
             await this.eventService.broadcastSandboxCreating(config.conversationId, config.workspaceId, 'Creating live preview sandbox...');
             // Create sandbox instance
             const sandbox = await e2b_1.Sandbox.create(this.templateId, {
-                timeoutMs: 300000, // 5 minutes timeout
+                timeoutMs: 1200000, // 20 minutes timeout
             });
             const sandboxId = sandbox.sandboxId;
             logger_1.logger.info({

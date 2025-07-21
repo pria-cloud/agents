@@ -71,7 +71,7 @@ export class E2BSandboxService {
 
       // Create sandbox instance
       const sandbox = await Sandbox.create(this.templateId, {
-        timeoutMs: 300000, // 5 minutes timeout
+        timeoutMs: 1200000, // 20 minutes timeout
       })
 
       const sandboxId = sandbox.sandboxId
