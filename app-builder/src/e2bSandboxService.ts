@@ -92,8 +92,8 @@ export class E2BSandboxService {
       // Install dependencies
       await this.installDependencies(sandbox)
 
-      // Install shadcn components
-      await this.installShadcnComponents(sandbox)
+      // Note: shadcn components are installed by start-sandbox.sh startup script
+      // No need to install them here as it causes redundant installation failures
 
       // Start the development server
       await this.startDevServer(sandbox)
@@ -266,47 +266,6 @@ export class E2BSandboxService {
     }
   }
 
-  /**
-   * Installs all shadcn components
-   */
-  private async installShadcnComponents(sandbox: Sandbox): Promise<void> {
-    try {
-      logger.info({ 
-        event: 'e2b.shadcn.installing', 
-        sandboxId: sandbox.sandboxId
-      }, 'Installing shadcn components')
-
-      // Install all shadcn components
-      const result = await sandbox.commands.run('npx shadcn@latest add --all --yes', {
-        cwd: '/code',
-        timeoutMs: 180000 // 3 minutes timeout
-      })
-
-      if (result.exitCode !== 0) {
-        logger.warn({ 
-          event: 'e2b.shadcn.warning', 
-          exitCode: result.exitCode,
-          stderr: result.stderr,
-          stdout: result.stdout,
-          sandboxId: sandbox.sandboxId
-        }, 'Shadcn installation completed with warnings')
-      } else {
-        logger.info({ 
-          event: 'e2b.shadcn.success', 
-          sandboxId: sandbox.sandboxId
-        }, 'Shadcn components installed successfully')
-      }
-
-    } catch (error) {
-      logger.error({ 
-        event: 'e2b.shadcn.error', 
-        error: error instanceof Error ? error.message : String(error),
-        sandboxId: sandbox.sandboxId
-      }, 'Failed to install shadcn components')
-      
-      // Don't throw error, continue with other setup steps
-    }
-  }
 
   /**
    * Starts the development server

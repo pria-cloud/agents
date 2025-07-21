@@ -14,7 +14,7 @@ This document tells a browser-based client (e.g. a Next.js chat UI) exactly **ho
 | **A2A-router** | `http://localhost:9999` (default) | Routes requests to the correct agent, handles progress broadcasts **(requires `x-api-key` header when `A2A_API_KEY` env var is set)** |
 | **App-Builder agent** | registered at runtime (e.g. `http://localhost:4001`) | Runs phases 0-4, creates E2B sandbox, returns files/deps |
 | **Supabase Realtime** | (your Supabase project URL) | Provides real-time progress updates and sandbox events via WebSocket channels |
-| **E2B Sandbox** | `https://{sandbox-id}.e2b.dev` | Cloud-based Next.js development environment with live preview |
+| **E2B Sandbox** | `https://3000-{sandbox-id}.e2b.app` | Cloud-based Next.js development environment with live preview |
 
 > **Authentication**
 > 
@@ -101,10 +101,25 @@ Each progress update broadcast has this shape:
   "conversationId": "conv-abc123…",
   "status": "in_progress",      // queued | in_progress | completed | error
   "phase": "codegen",           // discovery | plan | codegen | review | testgen | scaffold | sandbox | completed | error
-  "percent": 60,                 // integer 0-100 (rough estimate)
+  "percent": 60,                 // integer 0-100 (see detailed mapping below)
   "message": "Code generation complete"
 }
 ```
+
+##### **🔄 UPDATED:** Detailed Progress Phase Mapping
+The actual progress percentages and phases used by the App-Builder agent:
+
+| Phase | Progress % | Status Messages |
+|-------|------------|----------------|
+| **discovery** | 50% | "Awaiting user input for clarification" |
+| **plan** | 0% → 20% | "Planning application" → "Plan complete" |
+| **codegen** | 25% → 60% | "Generating application code" → "Code generation complete" |
+| **review** | 65% → 75% | "Reviewing generated code" → "Review complete" |
+| **testgen** | 80% → 90% | "Generating tests" → "Tests generated" |
+| **scaffold** | 95% | "Writing scaffold to disk" (only in non-Vercel environments) |
+| **sandbox** | 62% → 95% → 100% | "Starting live preview sandbox..." → "Finalizing live preview sandbox..." → "Live preview ready: {url}" |
+| **completed** | 100% | Final completion with files and metadata |
+| **error** | 100% | Error state with failure message |
 
 ##### Final completion event
 When `status` becomes `completed`, the `message` field contains the full results:
@@ -122,8 +137,8 @@ When `status` becomes `completed`, the `message` field contains the full results
       { "path": "components/Chart.tsx", "content": "…" }
     ],
     "dependencies": ["zod@^3.22.4", "lucide-react@latest"],
-    "sandboxUrl": "https://bslm087lozmkvjz6nwle-abc123.e2b.dev",
-    "sandboxId": "abc123-def456-ghi789",
+    "sandboxUrl": "https://3000-abc123def456ghi789.e2b.app",
+    "sandboxId": "abc123def456ghi789",
     "github_pr_url": "https://github.com/org/repo/pull/42"
   }
 }
@@ -165,8 +180,8 @@ interface SandboxEvent {
      "conversation_id": "conv-abc123",
      "workspace_id": "ws-xyz789",
      "sandbox_id": "abc123-def456",
-     "sandbox_url": "https://bslm087lozmkvjz6nwle-abc123.e2b.dev",
-     "message": "Live preview ready: https://bslm087lozmkvjz6nwle-abc123.e2b.dev",
+     "sandbox_url": "https://3000-abc123def456.e2b.app",
+     "message": "Live preview ready: https://3000-abc123def456.e2b.app",
      "timestamp": "2024-01-15T10:32:00Z"
    }
    ```
@@ -554,7 +569,7 @@ Validate that sandbox URLs come from trusted E2B domains:
 function isValidSandboxUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.hostname.endsWith('.e2b.dev');
+    return parsed.hostname.endsWith('.e2b.app');
   } catch {
     return false;
   }
@@ -565,7 +580,7 @@ function isValidSandboxUrl(url: string): boolean {
 Configure Content Security Policy to allow E2B iframe embedding:
 
 ```
-Content-Security-Policy: frame-src *.e2b.dev; script-src 'self' 'unsafe-inline';
+Content-Security-Policy: frame-src *.e2b.app; script-src 'self' 'unsafe-inline';
 ```
 
 ### 9. Performance Considerations
