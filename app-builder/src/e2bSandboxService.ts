@@ -278,7 +278,7 @@ export class E2BSandboxService {
       }, 'Starting development server')
 
       // Start dev server in background with logging
-      const devProcess = await sandbox.commands.start('cd /code && npm run dev > /tmp/dev-server.log 2>&1', {
+      const devProcess = sandbox.commands.run('cd /code && npm run dev > /tmp/dev-server.log 2>&1 &', {
         background: true
       })
 
@@ -565,56 +565,285 @@ AUTOFIX_EOF`, {
   }
 
   /**
-   * Generates error fix using Gemini (placeholder for now)
+   * Generates error fix using Gemini API for complex syntax/logic errors
    */
   private async generateErrorFix(filePath: string, content: string, errorContext: any): Promise<string | null> {
-    // This would integrate with Gemini API to generate fixes
-    // For now, implement basic fixes for common errors
+    const { type, message, fullLogs, lineNumber } = errorContext
     
-    const { type, message } = errorContext
-    
-    // Simple fixes for common patterns
-    if (type === 'module' && message.includes('Module not found')) {
-      // Try to add missing import or fix import path
+    // Try basic fixes first for common patterns
+    const basicFix = await this.tryBasicFixes(type, message, content)
+    if (basicFix) {
+      return basicFix
+    }
+
+    // For complex errors, use Gemini API
+    try {
       logger.info({ 
-        event: 'e2b.fix.module_not_found', 
-        message 
-      }, 'Attempting module resolution fix')
+        event: 'e2b.fix.gemini_api_attempt', 
+        file: filePath,
+        errorType: type,
+        lineNumber
+      }, 'Attempting Gemini API fix for complex error')
+
+      const { generateWithGemini } = await import('./llmAdapter')
+      const fixPrompt = this.buildErrorFixPrompt(filePath, content, errorContext)
       
-      // Extract missing module name
-      const moduleMatch = message.match(/Module not found.*['"](.+)['"]/i)
-      if (moduleMatch) {
-        const missingModule = moduleMatch[1]
-        
-        // Basic fixes for common missing imports
-        const commonFixes: { [key: string]: string } = {
-          'react': "import React from 'react'",
-          'next/link': "import Link from 'next/link'",
-          'next/image': "import Image from 'next/image'",
-          'next/router': "import { useRouter } from 'next/router'",
-          'react/jsx-runtime': '' // JSX runtime is auto-imported
-        }
-        
-        if (commonFixes[missingModule] !== undefined) {
-          const importStatement = commonFixes[missingModule]
-          if (importStatement && !content.includes(importStatement)) {
-            // Add import at the top
-            const lines = content.split('\n')
-            const importIndex = lines.findIndex(line => line.startsWith('import ')) || 0
-            lines.splice(importIndex, 0, importStatement)
-            return lines.join('\n')
-          }
+      const systemPrompt = `You are an expert TypeScript/React developer specializing in fixing compilation errors. 
+Analyze the error and provide only the corrected file content without explanations or markdown formatting.
+Focus on minimal changes to fix the specific error while preserving existing functionality.`
+
+      const response = await generateWithGemini({
+        prompt: fixPrompt,
+        system: systemPrompt
+      })
+
+      if (!response) {
+        logger.warn({ 
+          event: 'e2b.fix.gemini_empty_response', 
+          file: filePath 
+        }, 'Gemini returned empty response')
+        return null
+      }
+
+      // Extract fixed code from Gemini's response
+      const fixedContent = this.extractFixedCode(response, content)
+      if (!fixedContent) {
+        logger.warn({ 
+          event: 'e2b.fix.gemini_parse_failed', 
+          file: filePath 
+        }, 'Failed to parse fixed code from Gemini response')
+        return null
+      }
+
+      logger.info({ 
+        event: 'e2b.fix.gemini_success', 
+        file: filePath,
+        responseLength: response.length
+      }, 'Gemini successfully generated error fix')
+
+      return fixedContent
+
+    } catch (error) {
+      logger.error({ 
+        event: 'e2b.fix.gemini_error', 
+        error: error instanceof Error ? error.message : String(error),
+        file: filePath,
+        errorType: type
+      }, 'Gemini API fix attempt failed')
+      return null
+    }
+  }
+
+  /**
+   * Attempts basic pattern-based fixes before using Gemini API
+   */
+  private async tryBasicFixes(type: string, message: string, content: string): Promise<string | null> {
+    const errorClass = this.classifyError(type, message)
+    
+    switch (errorClass) {
+      case 'missing_import':
+        return this.fixMissingImport(message, content)
+      case 'syntax_error':
+        return this.fixBasicSyntax(message, content)
+      case 'type_error':
+        return this.fixBasicTypeError(message, content)
+      default:
+        return null
+    }
+  }
+
+  /**
+   * Classifies error types for appropriate fix strategies
+   */
+  private classifyError(type: string, message: string): string {
+    if (type === 'module' && message.includes('Module not found')) {
+      return 'missing_import'
+    }
+    if (type === 'syntax' && (message.includes('Unexpected token') || message.includes('Expected'))) {
+      return 'syntax_error'
+    }
+    if (type === 'type' && (message.includes('Property') || message.includes('Argument of type'))) {
+      return 'type_error'
+    }
+    if (message.includes('JSX element') || message.includes('React')) {
+      return 'react_jsx_error'
+    }
+    return 'complex_error'
+  }
+
+  /**
+   * Fixes missing import errors
+   */
+  private fixMissingImport(message: string, content: string): string | null {
+    logger.info({ 
+      event: 'e2b.fix.missing_import', 
+      message 
+    }, 'Attempting missing import fix')
+    
+    const moduleMatch = message.match(/Module not found.*['"](.+)['"]/i)
+    if (moduleMatch) {
+      const missingModule = moduleMatch[1]
+      
+      const commonFixes: { [key: string]: string } = {
+        'react': "import React from 'react'",
+        'next/link': "import Link from 'next/link'",
+        'next/image': "import Image from 'next/image'",
+        'next/router': "import { useRouter } from 'next/router'",
+        'next/head': "import Head from 'next/head'",
+        'react/jsx-runtime': '' // JSX runtime is auto-imported
+      }
+      
+      if (commonFixes[missingModule] !== undefined) {
+        const importStatement = commonFixes[missingModule]
+        if (importStatement && !content.includes(importStatement)) {
+          const lines = content.split('\n')
+          const importIndex = lines.findIndex(line => line.startsWith('import ')) || 0
+          lines.splice(importIndex, 0, importStatement)
+          return lines.join('\n')
         }
       }
     }
-    
-    // For now, return null to indicate no fix available
-    // In full implementation, this would call Gemini API
+    return null
+  }
+
+  /**
+   * Fixes basic syntax errors
+   */
+  private fixBasicSyntax(message: string, content: string): string | null {
     logger.info({ 
-      event: 'e2b.fix.not_implemented', 
-      errorType: type 
-    }, 'Auto-fix not implemented for this error type')
+      event: 'e2b.fix.basic_syntax', 
+      message 
+    }, 'Attempting basic syntax fix')
     
+    // Fix missing semicolons
+    if (message.includes('Expected ";"')) {
+      // This would need line number context for proper fixing
+      return null
+    }
+    
+    // Fix unclosed brackets/braces
+    if (message.includes('Expected "}"')) {
+      const openBraces = (content.match(/{/g) || []).length
+      const closeBraces = (content.match(/}/g) || []).length
+      if (openBraces > closeBraces) {
+        return content + '\n}'
+      }
+    }
+    
+    return null
+  }
+
+  /**
+   * Fixes basic TypeScript type errors
+   */
+  private fixBasicTypeError(message: string, content: string): string | null {
+    logger.info({ 
+      event: 'e2b.fix.basic_type_error', 
+      message 
+    }, 'Attempting basic type error fix')
+    
+    // Fix common React prop type issues
+    if (message.includes('Property') && message.includes('does not exist on type')) {
+      // This typically requires more context, defer to AI
+      return null
+    }
+    
+    return null
+  }
+
+  /**
+   * Builds a comprehensive prompt for Gemini to fix the error
+   */
+  private buildErrorFixPrompt(filePath: string, content: string, errorContext: any): string {
+    const { type, message, fullLogs, lineNumber } = errorContext
+    const errorClass = this.classifyError(type, message)
+    
+    // Customize prompt based on error classification
+    const specificInstructions = this.getErrorSpecificInstructions(errorClass)
+
+    return `Fix this ${type} error in a TypeScript/React Next.js file:
+
+**Error Details:**
+- File: ${filePath}
+- Error Type: ${type}
+- Error Classification: ${errorClass}
+- Error Message: ${message}
+${lineNumber ? `- Line Number: ${lineNumber}` : ''}
+
+**Current File Content:**
+\`\`\`typescript
+${content}
+\`\`\`
+
+**Full Error Logs:**
+\`\`\`
+${fullLogs?.substring(0, 1000) || 'No additional logs'}
+\`\`\`
+
+**General Instructions:**
+1. Analyze the error and identify the root cause
+2. Fix the error while preserving the existing functionality
+3. Follow Next.js and React best practices
+4. Use TypeScript types correctly
+5. Return ONLY the corrected file content
+6. Do not include explanations or markdown formatting
+7. Ensure all imports are properly added/fixed
+8. Make minimal changes necessary to fix the error
+
+**Specific Instructions for ${errorClass}:**
+${specificInstructions}
+
+**Fixed Code:**`
+  }
+
+  /**
+   * Gets error-specific instructions for Gemini
+   */
+  private getErrorSpecificInstructions(errorClass: string): string {
+    switch (errorClass) {
+      case 'missing_import':
+        return '- Add the missing import statement at the top of the file\n- Use correct import syntax (default vs named imports)\n- Check if the module name is correct'
+      case 'syntax_error':
+        return '- Fix syntax issues like missing brackets, semicolons, or parentheses\n- Ensure proper JSX syntax\n- Check for unclosed tags or expressions'
+      case 'type_error':
+        return '- Add proper TypeScript type annotations\n- Fix interface/type mismatches\n- Ensure props are correctly typed'
+      case 'react_jsx_error':
+        return '- Ensure JSX elements are properly closed\n- Fix React component usage\n- Add missing React imports if needed'
+      default:
+        return '- Focus on the specific error message\n- Make minimal but effective changes\n- Test that the fix addresses the root cause'
+    }
+  }
+
+  /**
+   * Extracts the fixed code from Gemini's response
+   */
+  private extractFixedCode(response: string, originalContent: string): string | null {
+    // Try to extract code block first
+    const codeBlockMatch = response.match(/```(?:typescript|tsx|ts|javascript|jsx|js)?\n([\s\S]*?)\n```/)
+    if (codeBlockMatch && codeBlockMatch[1]) {
+      return codeBlockMatch[1].trim()
+    }
+
+    // If no code block, look for code after "Fixed Code:" or similar markers
+    const fixedCodeMatch = response.match(/(?:Fixed Code:|Fixed:|Solution:)\s*\n([\s\S]*?)(?:\n\n|$)/i)
+    if (fixedCodeMatch && fixedCodeMatch[1]) {
+      return fixedCodeMatch[1].trim()
+    }
+
+    // If response looks like direct code (starts with import/export/const/function/etc)
+    const directCodeMatch = response.match(/^((?:import|export|const|function|class|interface|type)\b[\s\S]*)/m)
+    if (directCodeMatch && directCodeMatch[1]) {
+      return directCodeMatch[1].trim()
+    }
+
+    // As fallback, if response is significantly different from original and looks like code
+    if (response.length > 50 && 
+        response.includes('import') && 
+        !response.toLowerCase().includes('error') &&
+        response !== originalContent) {
+      return response.trim()
+    }
+
     return null
   }
 
