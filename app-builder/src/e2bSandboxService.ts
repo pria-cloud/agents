@@ -157,25 +157,75 @@ export class E2BSandboxService {
     logger.info({ 
       event: 'e2b.files.injecting', 
       filesCount: files.length,
+      filesList: files.map(f => f.filePath),
       sandboxId: sandbox.sandboxId
     }, 'Injecting files into sandbox')
 
+    let injectedCount = 0
+    let failedCount = 0
+
     for (const file of files) {
       try {
+        // Log file details before injection
+        logger.info({ 
+          event: 'e2b.file.injecting', 
+          filePath: file.filePath,
+          contentLength: file.content.length,
+          isAppPage: file.filePath === 'app/page.tsx',
+          sandboxId: sandbox.sandboxId
+        }, `Injecting file: ${file.filePath}`)
+
         // Ensure directory exists
         const dirPath = file.filePath.split('/').slice(0, -1).join('/')
         if (dirPath) {
           await sandbox.files.makeDir(dirPath)
+          logger.debug({ 
+            event: 'e2b.dir.created', 
+            dirPath,
+            sandboxId: sandbox.sandboxId
+          }, `Created directory: ${dirPath}`)
         }
 
-        // Write file content
-        await sandbox.files.write(file.filePath, file.content)
+        // Write file content with absolute path
+        const absolutePath = `/code/${file.filePath}`
+        await sandbox.files.write(absolutePath, file.content)
         
-        logger.debug({ 
-          event: 'e2b.file.injected', 
-          filePath: file.filePath,
-          sandboxId: sandbox.sandboxId
-        }, 'File injected')
+        // Verify file was written by reading it back
+        try {
+          const writtenContent = await sandbox.files.read(absolutePath)
+          const contentMatches = writtenContent === file.content
+          
+          logger.info({ 
+            event: 'e2b.file.injected', 
+            filePath: file.filePath,
+            absolutePath,
+            contentLength: file.content.length,
+            writtenLength: writtenContent.length,
+            contentMatches,
+            isAppPage: file.filePath === 'app/page.tsx',
+            sandboxId: sandbox.sandboxId
+          }, `Successfully injected: ${file.filePath}`)
+          
+          if (!contentMatches) {
+            logger.warn({ 
+              event: 'e2b.file.content_mismatch', 
+              filePath: file.filePath,
+              expected: file.content.substring(0, 100),
+              actual: writtenContent.substring(0, 100),
+              sandboxId: sandbox.sandboxId
+            }, 'File content mismatch after injection')
+          }
+          
+          injectedCount++
+        } catch (verifyError) {
+          logger.error({ 
+            event: 'e2b.file.verify_error', 
+            filePath: file.filePath,
+            error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+            sandboxId: sandbox.sandboxId
+          }, 'Failed to verify file after injection')
+          failedCount++
+        }
 
       } catch (error) {
         logger.error({ 
@@ -185,8 +235,37 @@ export class E2BSandboxService {
           sandboxId: sandbox.sandboxId
         }, 'Failed to inject file')
         
+        failedCount++
         // Continue with other files even if one fails
       }
+    }
+
+    // Final summary log
+    logger.info({ 
+      event: 'e2b.files.injection_complete', 
+      totalFiles: files.length,
+      injectedCount,
+      failedCount,
+      hasAppPage: files.some(f => f.filePath === 'app/page.tsx'),
+      sandboxId: sandbox.sandboxId
+    }, `File injection complete: ${injectedCount}/${files.length} files successfully injected`)
+
+    // List current /code directory contents for debugging
+    try {
+      const dirContents = await sandbox.commands.run('find /code -type f -name "*.tsx" -o -name "*.ts" -o -name "*.js" | head -20', {
+        cwd: '/code'
+      })
+      
+      logger.info({ 
+        event: 'e2b.debug.directory_contents', 
+        contents: dirContents.stdout,
+        sandboxId: sandbox.sandboxId
+      }, 'Current sandbox file structure')
+    } catch (error) {
+      logger.debug({ 
+        event: 'e2b.debug.directory_list_error', 
+        error: error instanceof Error ? error.message : String(error)
+      }, 'Could not list directory contents')
     }
   }
 
