@@ -250,9 +250,12 @@ export class E2BSandboxService {
       sandboxId: sandbox.sandboxId
     }, `File injection complete: ${injectedCount}/${files.length} files successfully injected`)
 
+    // Ensure .env.local exists with Supabase credentials
+    await this.ensureEnvFile(sandbox)
+
     // List current /code directory contents for debugging
     try {
-      const dirContents = await sandbox.commands.run('find /code -type f -name "*.tsx" -o -name "*.ts" -o -name "*.js" | head -20', {
+      const dirContents = await sandbox.commands.run('find /code -type f -name "*.tsx" -o -name "*.ts" -o -name "*.js" -o -name ".env*" | head -20', {
         cwd: '/code'
       })
       
@@ -266,6 +269,51 @@ export class E2BSandboxService {
         event: 'e2b.debug.directory_list_error', 
         error: error instanceof Error ? error.message : String(error)
       }, 'Could not list directory contents')
+    }
+  }
+
+  /**
+   * Ensures .env.local exists with required Supabase environment variables
+   */
+  private async ensureEnvFile(sandbox: Sandbox): Promise<void> {
+    try {
+      logger.info({ 
+        event: 'e2b.env.ensuring', 
+        sandboxId: sandbox.sandboxId
+      }, 'Ensuring .env.local exists with Supabase credentials')
+
+      const envContent = `NEXT_PUBLIC_SUPABASE_URL="https://ktodzuolttfqrkozlsae.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0b2R6dW9sdHRmcXJrb3psc2FlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk5MjI0MjIsImV4cCI6MjA2NTQ5ODQyMn0.yCT4s4Uq7ufxtwHEhF9_XV32jFX54INAz-KP6v3IDBY"
+
+# Additional Supabase configuration for development
+SUPABASE_URL="https://ktodzuolttfqrkozlsae.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0b2R6dW9sdHRmcXJrb3psc2FlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTkyMjQyMiwiZXhwIjoyMDY1NDk4NDIyfQ.HLWVpECcZQNRGqgTWVP6SVEY6xiF2I8FZd7ZnJS_OTI"
+
+# Database configuration
+POSTGRES_URL="postgres://postgres.ktodzuolttfqrkozlsae:UPdT8DtSeD4mQWuR@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require&supa=base-pooler.x"
+POSTGRES_PRISMA_URL="postgres://postgres.ktodzuolttfqrkozlsae:UPdT8DtSeD4mQWuR@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require&supa=base-pooler.x"
+POSTGRES_URL_NON_POOLING="postgres://postgres.ktodzuolttfqrkozlsae:UPdT8DtSeD4mQWuR@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require"
+POSTGRES_USER="postgres"
+POSTGRES_HOST="db.ktodzuolttfqrkozlsae.supabase.co"
+POSTGRES_PASSWORD="UPdT8DtSeD4mQWuR"
+POSTGRES_DATABASE="postgres"
+
+# JWT Secret
+SUPABASE_JWT_SECRET="ZFEAEtNukPIxfPti+TR84hqTlLs1iwUIHa68W0xcZ1bpgSqkDtnvnVP2FOhxJEfLZJlbcgHsZgLkFK6oZ5KwgQ=="`
+
+      await sandbox.files.write('/code/.env.local', envContent)
+      
+      logger.info({ 
+        event: 'e2b.env.created', 
+        sandboxId: sandbox.sandboxId
+      }, 'Created .env.local with Supabase credentials')
+
+    } catch (error) {
+      logger.error({ 
+        event: 'e2b.env.error', 
+        error: error instanceof Error ? error.message : String(error),
+        sandboxId: sandbox.sandboxId
+      }, 'Failed to create .env.local file')
     }
   }
 
