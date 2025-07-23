@@ -250,6 +250,9 @@ export class E2BSandboxService {
       sandboxId: sandbox.sandboxId
     }, `File injection complete: ${injectedCount}/${files.length} files successfully injected`)
 
+    // Ensure .env.local exists with environment variables
+    await this.ensureEnvFile(sandbox)
+
     // List current /code directory contents for debugging
     try {
       const dirContents = await sandbox.commands.run('find /code -type f -name "*.tsx" -o -name "*.ts" -o -name "*.js" | head -20', {
@@ -266,6 +269,75 @@ export class E2BSandboxService {
         event: 'e2b.debug.directory_list_error', 
         error: error instanceof Error ? error.message : String(error)
       }, 'Could not list directory contents')
+    }
+  }
+
+  /**
+   * Ensures .env.local exists with required environment variables from process.env
+   * Environment variables should be provided securely through the deployment environment
+   */
+  private async ensureEnvFile(sandbox: Sandbox): Promise<void> {
+    try {
+      logger.info({ 
+        event: 'e2b.env.ensuring', 
+        sandboxId: sandbox.sandboxId
+      }, 'Ensuring .env.local exists with environment variables')
+
+      // Read environment variables from process.env (should be provided securely)
+      const requiredVars = [
+        'NEXT_PUBLIC_SUPABASE_URL',
+        'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+        'SUPABASE_URL',
+        'SUPABASE_SERVICE_ROLE_KEY',
+        'POSTGRES_URL',
+        'POSTGRES_PRISMA_URL',
+        'POSTGRES_URL_NON_POOLING',
+        'POSTGRES_USER',
+        'POSTGRES_HOST',
+        'POSTGRES_PASSWORD',
+        'POSTGRES_DATABASE',
+        'SUPABASE_JWT_SECRET'
+      ]
+
+      const envVars: string[] = []
+      const missingVars: string[] = []
+
+      for (const varName of requiredVars) {
+        const value = process.env[varName]
+        if (value) {
+          envVars.push(`${varName}="${value}"`)
+        } else {
+          missingVars.push(varName)
+          // Use placeholder for missing variables to prevent runtime errors
+          envVars.push(`${varName}="PLACEHOLDER_${varName}"`)
+        }
+      }
+
+      if (missingVars.length > 0) {
+        logger.warn({ 
+          event: 'e2b.env.missing_vars', 
+          missingVars,
+          sandboxId: sandbox.sandboxId
+        }, `Missing environment variables: ${missingVars.join(', ')}. Using placeholders.`)
+      }
+
+      const envContent = envVars.join('\n') + '\n'
+      await sandbox.files.write('/code/.env.local', envContent)
+      
+      logger.info({ 
+        event: 'e2b.env.created', 
+        sandboxId: sandbox.sandboxId,
+        varsProvided: requiredVars.length - missingVars.length,
+        varsTotal: requiredVars.length
+      }, 'Successfully created .env.local file')
+      
+    } catch (error) {
+      logger.error({ 
+        event: 'e2b.env.error', 
+        error: error instanceof Error ? error.message : String(error),
+        sandboxId: sandbox.sandboxId
+      }, 'Failed to create .env.local file')
+      throw error
     }
   }
 
