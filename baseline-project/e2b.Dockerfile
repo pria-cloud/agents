@@ -38,6 +38,10 @@ RUN chmod +x /code/start-sandbox.sh
 ENV NODE_ENV=development
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Set Supabase environment variables
+ENV NEXT_PUBLIC_SUPABASE_URL="https://ktodzuolttfqrkozlsae.supabase.co"
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0b2R6dW9sdHRmcXJrb3psc2FlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk5MjI0MjIsImV4cCI6MjA2NTQ5ODQyMn0.yCT4s4Uq7ufxtwHEhF9_XV32jFX54INAz-KP6v3IDBY"
+
 # Expose the port the app runs on
 EXPOSE 3000
 

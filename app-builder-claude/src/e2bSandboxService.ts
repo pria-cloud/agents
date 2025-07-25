@@ -254,7 +254,7 @@ export class E2BSandboxService {
 
     // List current /code directory contents for debugging
     try {
-      const dirContents = await sandbox.commands.run('find /code -type f -name "*.tsx" -o -name "*.ts" -o -name "*.js" | head -20', {
+      const dirContents = await sandbox.commands.run('find /code -type f -name "*.tsx" -o -name "*.ts" -o -name "*.js" -o -name ".env*" | head -20', {
         cwd: '/code'
       })
       
