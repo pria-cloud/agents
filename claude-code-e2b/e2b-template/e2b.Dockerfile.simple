@@ -1,0 +1,62 @@
+# Enhanced E2B container with Claude Code SDK integration
+FROM e2bdev/code-interpreter:latest
+
+# Install Node.js 20.x (required for Next.js 15 and Claude Code SDK)
+RUN apt-get update && \
+    apt-get install -y ca-certificates curl gnupg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
+
+# Install additional system dependencies including Playwright browsers dependencies
+RUN apt-get install -y \
+    git \
+    vim \
+    nano \
+    wget \
+    unzip \
+    python3 \
+    python3-pip \
+    libnss3-dev \
+    libatk-bridge2.0-dev \
+    libdrm2 \
+    libxkbcommon0 \
+    libgtk-3-dev \
+    libgbm-dev \
+    libasound2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code SDK globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Create and set the working directory
+WORKDIR /code
+
+# Copy the application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /code/baseline-project/{app,components,lib,public,components/ui} \
+    /code/user-app/{app,components,lib,public,components/ui} \
+    /code/api-service/src \
+    /code/repos \
+    /code/logs
+
+# Make scripts executable
+RUN chmod +x /code/scripts/*.sh
+
+# Set environment variables
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV API_PORT=8080
+ENV NEXT_PORT=3000
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
+
+# Environment variables for Claude Code SDK and MCP servers will be injected at runtime
+# Do not hardcode API keys in Dockerfile
+
+# Expose ports for all services
+EXPOSE 3000 4000 8080
+
+# Set the command to start both services
+CMD ["./scripts/start-services.sh"]

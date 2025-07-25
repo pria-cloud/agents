@@ -7,21 +7,21 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.50.3",
+    "@supabase/supabase-js": "^2.52.1",
     "@types/node-fetch": "^2.6.12",
-    "axios": "^1.10.0",
-    "compression": "^1.7.4",
+    "axios": "^1.7.9",
+    "compression": "^1.7.5",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
-    "node-fetch": "^2.6.12",
+    "node-fetch": "^2.7.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
   },
   "devDependencies": {
     "@types/compression": "^1.7.2",
-    "@types/cors": "^2.8.13",
+    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.3",
-    "@types/node": "^24.0.3"
+    "@types/node": "^22.10.6"
   }
 }

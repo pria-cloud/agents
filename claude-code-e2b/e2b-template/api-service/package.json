@@ -1,0 +1,45 @@
+{
+  "name": "claude-code-e2b-api",
+  "version": "1.0.0",
+  "description": "API service for Claude Code E2B integration",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "watch": "nodemon --exec ts-node src/server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "ws": "^8.14.2",
+    "simple-git": "^3.20.0",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.1",
+    "chokidar": "^3.5.3",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/morgan": "^1.9.9",
+    "@types/ws": "^8.5.10",
+    "@types/multer": "^1.4.11",
+    "@types/uuid": "^9.0.7",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.1",
+    "nodemon": "^3.0.2"
+  },
+  "keywords": [
+    "claude-code",
+    "e2b",
+    "api",
+    "development"
+  ],
+  "author": "PRIA AI",
+  "license": "MIT"
+}
