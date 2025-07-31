@@ -1,0 +1,16 @@
+# This is a config for E2B sandbox template.
+# You can use template ID (go8un62yavi0der0vec2) or template name (pria-dev-env-v3) to create a sandbox:
+
+# Python SDK
+# from e2b import Sandbox, AsyncSandbox
+# sandbox = Sandbox("pria-dev-env-v3") # Sync sandbox
+# sandbox = await AsyncSandbox.create("pria-dev-env-v3") # Async sandbox
+
+# JS SDK
+# import { Sandbox } from 'e2b'
+# const sandbox = await Sandbox.create('pria-dev-env-v3')
+
+team_id = "d9ae965a-2a35-4a01-bc6e-6ff76faaa12c"
+dockerfile = "e2b.Dockerfile"
+template_name = "pria-dev-env-v3"
+template_id = "go8un62yavi0der0vec2"
