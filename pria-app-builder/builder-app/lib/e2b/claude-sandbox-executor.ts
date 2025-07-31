@@ -118,9 +118,10 @@ export class ClaudeSandboxExecutor {
       const promptFilePath = `/tmp/claude-prompt-${Date.now()}.txt`
       let fullPrompt = options.prompt
       
-      // Add subagent prefix if specified
+      // Add subagent context as natural language instruction if specified
       if (options.subAgent) {
-        fullPrompt = `/use-agent ${options.subAgent}\n\n${options.prompt}`
+        const roleInstruction = `You are acting as a ${options.subAgent.replace('-', ' ')} specialist. Focus on this specific role while helping with the following request.\n\n`
+        fullPrompt = roleInstruction + options.prompt
       }
       
       await this.sandboxManager.writeFile(options.sessionId, promptFilePath, fullPrompt)
