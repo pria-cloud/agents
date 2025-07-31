@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { logger } from '@/lib/monitoring/logger'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
 export interface RateLimitConfig {
@@ -90,14 +90,16 @@ class GlobalRateLimiter {
         }
 
         logger.warn('Rate limit exceeded', {
-          key,
-          count: entry.count,
-          limit: config.requests,
-          burst: burstLimit,
-          retryAfter,
-          url: request.url,
-          method: request.method,
-          userAgent: request.headers.get('user-agent')
+          metadata: {
+            key,
+            count: entry.count,
+            limit: config.requests,
+            burst: burstLimit,
+            retryAfter,
+            url: request.url,
+            method: request.method,
+            userAgent: request.headers.get('user-agent') || undefined
+          }
         })
 
         return {
@@ -127,7 +129,7 @@ class GlobalRateLimiter {
       }
 
     } catch (error) {
-      logger.error('Rate limit check failed', error)
+      logger.error('Rate limit check failed', error instanceof Error ? error : new Error(String(error)))
       
       // Fail open - allow request if rate limiting fails
       return {
@@ -213,7 +215,7 @@ class GlobalRateLimiter {
     
     this.store.delete(key)
     
-    logger.info('Rate limit reset', { key })
+    logger.info('Rate limit reset', { metadata: { key } })
   }
 
   /**
@@ -236,7 +238,7 @@ class GlobalRateLimiter {
     return {
       totalKeys: this.store.size,
       activeWindows,
-      memoryUsage: process.memoryUsage().heapUsed
+      memoryUsage: typeof process !== 'undefined' && process.memoryUsage ? process.memoryUsage().heapUsed : 0
     }
   }
 
@@ -249,8 +251,8 @@ class GlobalRateLimiter {
     
     // For authenticated requests, include user ID
     try {
-      const cookieStore = cookies()
-      const supabase = createClient(cookieStore)
+      // cookieStore is now handled internally by createServerClient
+      const supabase = await createServerClient()
       const { data: { user } } = await supabase.auth.getUser()
       
       if (user) {
@@ -280,7 +282,7 @@ class GlobalRateLimiter {
       return cfConnectingIP
     }
     
-    return request.ip || 'unknown'
+    return 'unknown'
   }
 
   private getEndpointPattern(pathname: string): string {
@@ -304,8 +306,10 @@ class GlobalRateLimiter {
     
     if (cleaned > 0) {
       logger.debug('Rate limiter cleanup completed', {
-        entriesRemoved: cleaned,
-        remainingEntries: this.store.size
+        metadata: {
+          entriesRemoved: cleaned,
+          remainingEntries: this.store.size
+        }
       })
     }
   }
@@ -337,8 +341,8 @@ export const RATE_LIMIT_CONFIGS = {
     burst: 5,
     keyGenerator: async (request: NextRequest) => {
       // Rate limit by user for Claude operations
-      const cookieStore = cookies()
-      const supabase = createClient(cookieStore)
+      // cookieStore is now handled internally by createServerClient
+      const supabase = await createServerClient()
       const { data: { user } } = await supabase.auth.getUser()
       
       if (user) {
@@ -346,7 +350,7 @@ export const RATE_LIMIT_CONFIGS = {
         return `claude:workspace:${workspaceId || user.id}`
       }
       
-      const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || request.ip || 'unknown'
+      const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown'
       return `claude:ip:${ip}`
     }
   } as RateLimitConfig,
@@ -375,7 +379,7 @@ export const RATE_LIMIT_CONFIGS = {
     windowMs: 60000, // 1 minute
     burst: 0, // No burst for auth
     keyGenerator: async (request: NextRequest) => {
-      const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || request.ip || 'unknown'
+      const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown'
       return `auth:${ip}`
     }
   } as RateLimitConfig,
@@ -441,7 +445,9 @@ export function withRateLimit(
   }
 }
 
-// Cleanup on process exit
-process.on('exit', () => {
-  globalRateLimiter.destroy()
-})
+// Cleanup on process exit (Node.js only - not available in Edge Runtime)
+if (typeof process !== 'undefined' && process.on) {
+  process.on('exit', () => {
+    globalRateLimiter.destroy()
+  })
+}

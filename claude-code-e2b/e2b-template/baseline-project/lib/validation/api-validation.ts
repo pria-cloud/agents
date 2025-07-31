@@ -239,7 +239,7 @@ export function checkRateLimit(
 } {
   const key = config.keyGenerator ? 
     config.keyGenerator(request) : 
-    request.ip || request.headers.get('x-forwarded-for') || 'unknown'
+    request.headers.get('x-forwarded-for') || 'unknown'
   
   const now = Date.now()
   const windowStart = now - config.windowMs
@@ -334,7 +334,7 @@ export function logAPIRequest(
     method: request.method,
     url: request.url,
     userAgent: request.headers.get('user-agent'),
-    ip: request.ip || request.headers.get('x-forwarded-for'),
+    ip: request.headers.get('x-forwarded-for'),
     status: response.status,
     duration,
     error: error?.message

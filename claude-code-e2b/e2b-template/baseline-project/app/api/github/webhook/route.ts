@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { githubSecurity } from '@/lib/security/github-security'
 import { logger } from '@/lib/monitoring/logger'
@@ -63,7 +63,9 @@ export const POST = createAPIHandler(
       
       if (!signature) {
         logger.warn('GitHub webhook received without signature', {
-          headers: Object.fromEntries(request.headers.entries())
+          metadata: {
+            headers: Object.fromEntries(request.headers.entries())
+          }
         })
         return NextResponse.json(
           { error: 'Missing webhook signature' },
@@ -74,9 +76,11 @@ export const POST = createAPIHandler(
       // Verify webhook signature
       const isValidSignature = githubSecurity.verifyWebhookSignature(rawBody, signature)
       if (!isValidSignature) {
-        logger.error('GitHub webhook signature verification failed', {
-          signature,
-          bodyLength: rawBody.length
+        logger.error('GitHub webhook signature verification failed', undefined, {
+          metadata: {
+            signature,
+            bodyLength: rawBody.length
+          }
         })
         return NextResponse.json(
           { error: 'Invalid webhook signature' },
@@ -90,11 +94,13 @@ export const POST = createAPIHandler(
       const deliveryId = request.headers.get('x-github-delivery')
 
       logger.info('GitHub webhook received', {
-        eventType,
-        deliveryId,
-        action: event.action,
-        repository: event.repository?.full_name,
-        sender: event.sender?.login
+        metadata: {
+          eventType,
+          deliveryId,
+          action: event.action,
+          repository: event.repository?.full_name,
+          sender: event.sender?.login
+        }
       })
 
       // Process the webhook event
@@ -102,10 +108,12 @@ export const POST = createAPIHandler(
       
       const duration = Date.now() - startTime
       logger.info('GitHub webhook processed', {
-        eventType,
-        deliveryId,
         duration,
-        success: result.success
+        metadata: {
+          eventType,
+          deliveryId,
+          success: result.success
+        }
       })
 
       return NextResponse.json({
@@ -117,9 +125,11 @@ export const POST = createAPIHandler(
 
     } catch (error) {
       const duration = Date.now() - startTime
-      logger.error('GitHub webhook processing failed', error, {
+      logger.error('GitHub webhook processing failed', error instanceof Error ? error : new Error(String(error)), {
         duration,
-        url: request.url
+        metadata: {
+          url: request.url
+        }
       })
 
       return NextResponse.json(
@@ -141,8 +151,7 @@ async function processWebhookEvent(
   payload: any,
   deliveryId: string
 ): Promise<{ success: boolean; message: string }> {
-  const cookieStore = cookies()
-  const supabase = createClient(cookieStore)
+  const supabase = await createServerClient()
 
   try {
     switch (eventType) {
@@ -164,9 +173,11 @@ async function processWebhookEvent(
       
       default:
         logger.warn('Unhandled webhook event type', {
-          eventType,
-          deliveryId,
-          action: payload.action
+          metadata: {
+            eventType,
+            deliveryId,
+            action: payload.action
+          }
         })
         return {
           success: true,
@@ -174,9 +185,11 @@ async function processWebhookEvent(
         }
     }
   } catch (error) {
-    logger.error('Webhook event processing error', error, {
-      eventType,
-      deliveryId
+    logger.error('Webhook event processing error', error instanceof Error ? error : new Error(String(error)), {
+      metadata: {
+        eventType,
+        deliveryId
+      }
     })
     throw error
   }
@@ -186,7 +199,7 @@ async function processWebhookEvent(
  * Handle repository push events
  */
 async function handlePushEvent(
-  supabase: any,
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
   payload: any,
   deliveryId: string
 ): Promise<{ success: boolean; message: string }> {
@@ -205,7 +218,7 @@ async function handlePushEvent(
       .eq('status', 'active')
 
     if (error) {
-      logger.error('Failed to fetch sessions for push event', error)
+      logger.error('Failed to fetch sessions for push event', error instanceof Error ? error : new Error(String(error)))
       return { success: false, message: 'Database error' }
     }
 
@@ -244,9 +257,11 @@ async function handlePushEvent(
 
       logger.info('Push event logged for session', {
         sessionId: session.id,
-        repository: repository.full_name,
-        branch: branchName,
-        commitSha: head_commit.id
+        metadata: {
+          repository: repository.full_name,
+          branch: branchName,
+          commitSha: head_commit.id
+        }
       })
     }
 
@@ -255,7 +270,7 @@ async function handlePushEvent(
       message: `Processed push event for ${sessions.length} session(s)`
     }
   } catch (error) {
-    logger.error('Push event handling failed', error)
+    logger.error('Push event handling failed', error instanceof Error ? error : new Error(String(error)))
     return { success: false, message: 'Push event processing failed' }
   }
 }
@@ -264,7 +279,7 @@ async function handlePushEvent(
  * Handle pull request events
  */
 async function handlePullRequestEvent(
-  supabase: any,
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
   payload: any,
   deliveryId: string
 ): Promise<{ success: boolean; message: string }> {
@@ -283,7 +298,7 @@ async function handlePullRequestEvent(
       .eq('status', 'active')
 
     if (error) {
-      logger.error('Failed to fetch sessions for PR event', error)
+      logger.error('Failed to fetch sessions for PR event', error instanceof Error ? error : new Error(String(error)))
       return { success: false, message: 'Database error' }
     }
 
@@ -321,7 +336,7 @@ async function handlePullRequestEvent(
       message: `Processed PR ${action} event for ${sessions.length} session(s)`
     }
   } catch (error) {
-    logger.error('Pull request event handling failed', error)
+    logger.error('Pull request event handling failed', error instanceof Error ? error : new Error(String(error)))
     return { success: false, message: 'Pull request event processing failed' }
   }
 }
@@ -330,7 +345,7 @@ async function handlePullRequestEvent(
  * Handle repository events (created, deleted, etc.)
  */
 async function handleRepositoryEvent(
-  supabase: any,
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
   payload: any,
   deliveryId: string
 ): Promise<{ success: boolean; message: string }> {
@@ -338,9 +353,11 @@ async function handleRepositoryEvent(
     const { action, repository } = payload
     
     logger.info('Repository event received', {
-      action,
-      repository: repository?.full_name,
-      deliveryId
+      metadata: {
+        action,
+        repository: repository?.full_name,
+        deliveryId
+      }
     })
 
     // For repository deletion, clean up any sessions
@@ -355,7 +372,7 @@ async function handleRepositoryEvent(
         .eq('github_repo_url', repository.html_url)
 
       if (error) {
-        logger.error('Failed to clean up sessions for deleted repository', error)
+        logger.error('Failed to clean up sessions for deleted repository', error instanceof Error ? error : new Error(String(error)))
       }
     }
 
@@ -364,7 +381,7 @@ async function handleRepositoryEvent(
       message: `Repository ${action} event processed`
     }
   } catch (error) {
-    logger.error('Repository event handling failed', error)
+    logger.error('Repository event handling failed', error instanceof Error ? error : new Error(String(error)))
     return { success: false, message: 'Repository event processing failed' }
   }
 }
@@ -373,7 +390,7 @@ async function handleRepositoryEvent(
  * Handle GitHub App installation events
  */
 async function handleInstallationEvent(
-  supabase: any,
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
   payload: any,
   deliveryId: string
 ): Promise<{ success: boolean; message: string }> {
@@ -381,10 +398,12 @@ async function handleInstallationEvent(
     const { action, installation } = payload
     
     logger.info('Installation event received', {
-      action,
-      installationId: installation?.id,
-      account: installation?.account?.login,
-      deliveryId
+      metadata: {
+        action,
+        installationId: installation?.id,
+        account: installation?.account?.login,
+        deliveryId
+      }
     })
 
     // Log installation events but don't process them yet
@@ -395,7 +414,7 @@ async function handleInstallationEvent(
       message: `Installation ${action} event acknowledged`
     }
   } catch (error) {
-    logger.error('Installation event handling failed', error)
+    logger.error('Installation event handling failed', error instanceof Error ? error : new Error(String(error)))
     return { success: false, message: 'Installation event processing failed' }
   }
 }
@@ -407,8 +426,10 @@ function handlePingEvent(payload: any): { success: boolean; message: string } {
   const { zen, hook_id } = payload
   
   logger.info('GitHub webhook ping received', {
-    zen,
-    hookId: hook_id
+    metadata: {
+      zen,
+      hookId: hook_id
+    }
   })
 
   return {

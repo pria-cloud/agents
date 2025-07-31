@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { GitHubService } from '@/lib/services/github'
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -110,7 +110,7 @@ async function handleCreateRepository(
     if (!response.ok) {
       const error = await response.json()
       return NextResponse.json({ 
-        error: `Failed to create repository: ${error.message}` 
+        error: `Failed to create repository: ${error.message || 'Unknown error'}` 
       }, { status: response.status })
     }
     

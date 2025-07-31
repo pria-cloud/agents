@@ -106,4 +106,4 @@ spec:
 
 - All changes are versioned and reviewed by domain experts.
 - New domains or updates follow a proposal and review workflow.
-- Machine-readable and human-readable formats are kept in sync. 
+- Machine-readable and human-readable formats are kept in sync.

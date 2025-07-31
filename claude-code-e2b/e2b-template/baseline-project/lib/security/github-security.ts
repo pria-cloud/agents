@@ -45,7 +45,7 @@ export class GitHubSecurityService {
       
       return result
     } catch (error) {
-      logger.error('Token encryption failed', error)
+      logger.error('Token encryption failed', error instanceof Error ? error : new Error(String(error)))
       throw new Error('Failed to encrypt GitHub token')
     }
   }
@@ -74,7 +74,7 @@ export class GitHubSecurityService {
       
       return decrypted
     } catch (error) {
-      logger.error('Token decryption failed', error)
+      logger.error('Token decryption failed', error instanceof Error ? error : new Error(String(error)))
       throw new Error('Failed to decrypt GitHub token')
     }
   }
@@ -104,7 +104,7 @@ export class GitHubSecurityService {
 
       return crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
     } catch (error) {
-      logger.error('Webhook signature verification failed', error)
+      logger.error('Webhook signature verification failed', error instanceof Error ? error : new Error(String(error)))
       return false
     }
   }
@@ -130,8 +130,7 @@ export class GitHubSecurityService {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/vnd.github.v3+json',
           'User-Agent': 'PRIA-Platform/1.0'
-        },
-        timeout: 10000
+        }
       })
 
       // Check rate limiting
@@ -139,16 +138,20 @@ export class GitHubSecurityService {
       
       if (rateLimit.remaining < 100) {
         logger.warn('GitHub API rate limit approaching', {
-          remaining: rateLimit.remaining,
-          resetTime: rateLimit.resetTime
+          metadata: {
+            remaining: rateLimit.remaining,
+            resetTime: rateLimit.resetTime
+          }
         })
       }
 
       if (!response.ok) {
         const errorText = await response.text()
         logger.warn('GitHub token validation failed', {
-          status: response.status,
-          error: errorText
+          metadata: {
+            status: response.status,
+            error: errorText
+          }
         })
 
         return {
@@ -169,9 +172,11 @@ export class GitHubSecurityService {
       
       if (!hasRequiredScopes) {
         logger.warn('GitHub token missing required scopes', {
-          required: requiredScopes,
-          actual: scopes,
-          userId: user.id
+          metadata: {
+            required: requiredScopes,
+            actual: scopes,
+            userId: user.id
+          }
         })
 
         return {
@@ -182,9 +187,11 @@ export class GitHubSecurityService {
       }
 
       logger.info('GitHub token validated successfully', {
-        userId: user.id,
-        username: user.login,
-        scopes
+        metadata: {
+          userId: user.id,
+          username: user.login,
+          scopes
+        }
       })
 
       return {
@@ -195,7 +202,7 @@ export class GitHubSecurityService {
       }
 
     } catch (error) {
-      logger.error('GitHub token validation error', error)
+      logger.error('GitHub token validation error', error instanceof Error ? error : new Error(String(error)))
       return {
         valid: false,
         error: 'Token validation failed'
@@ -231,8 +238,7 @@ export class GitHubSecurityService {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/vnd.github.v3+json',
           'User-Agent': 'PRIA-Platform/1.0'
-        },
-        timeout: 10000
+        }
       })
 
       if (!response.ok) {
@@ -267,9 +273,11 @@ export class GitHubSecurityService {
       }
 
       logger.info('Repository access validated', {
-        owner,
-        repo,
-        permissions
+        metadata: {
+          owner,
+          repo,
+          permissions
+        }
       })
 
       return {
@@ -278,7 +286,7 @@ export class GitHubSecurityService {
       }
 
     } catch (error) {
-      logger.error('Repository access validation error', error)
+      logger.error('Repository access validation error', error instanceof Error ? error : new Error(String(error)))
       return {
         hasAccess: false,
         error: 'Repository access validation failed'
@@ -309,9 +317,11 @@ export class GitHubSecurityService {
           const delay = retryOptions.baseDelay * Math.pow(2, attempt)
           
           logger.warn('GitHub API rate limit hit, retrying', {
-            attempt: attempt + 1,
-            maxRetries: retryOptions.maxRetries,
-            delay
+            metadata: {
+              attempt: attempt + 1,
+              maxRetries: retryOptions.maxRetries,
+              delay
+            }
           })
 
           if (attempt < retryOptions.maxRetries) {
@@ -346,7 +356,7 @@ export class GitHubSecurityService {
         error: 'Token rotation not supported for OAuth apps - manual refresh required'
       }
     } catch (error) {
-      logger.error('Token rotation failed', error)
+      logger.error('Token rotation failed', error instanceof Error ? error : new Error(String(error)))
       return {
         success: false,
         error: 'Token rotation failed'
@@ -393,7 +403,9 @@ export class GitHubSecurityService {
 
       throw new Error('Invalid GitHub URL format')
     } catch (error) {
-      logger.error('Repository URL parsing failed', error, { url })
+      logger.error('Repository URL parsing failed', error instanceof Error ? error : new Error(String(error)), { 
+        metadata: { url } 
+      })
       return { owner: '', repo: '' }
     }
   }
@@ -458,7 +470,7 @@ export async function validateGitHubOperation(
 
     return { allowed: true }
   } catch (error) {
-    logger.error('GitHub operation validation failed', error)
+    logger.error('GitHub operation validation failed', error instanceof Error ? error : new Error(String(error)))
     return {
       allowed: false,
       error: 'Operation validation failed'

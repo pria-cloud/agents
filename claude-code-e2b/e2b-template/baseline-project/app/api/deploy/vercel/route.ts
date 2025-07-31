@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { GitHubService } from '@/lib/services/github'
 import { e2bSandboxService } from '@/lib/services/e2b'
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -275,7 +274,8 @@ async function syncFilesToGitHub(
     
   } catch (error) {
     console.error('Sync to GitHub error:', error)
-    return { success: false, error: error.message }
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+    return { success: false, error: errorMessage }
   }
 }
 
@@ -333,9 +333,10 @@ async function triggerVercelDeployment(
     
   } catch (error) {
     console.error('Trigger Vercel deployment error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
     return {
       success: false,
-      error: error.message
+      error: errorMessage
     }
   }
 }

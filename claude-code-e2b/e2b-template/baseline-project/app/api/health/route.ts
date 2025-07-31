@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { e2bSandboxService } from '@/lib/services/e2b'
 import { logger, metrics, errorTracker, type HealthStatus } from '@/lib/monitoring/logger'
@@ -67,9 +67,11 @@ export async function GET(request: NextRequest) {
     // Log health check
     const duration = Date.now() - startTime
     logger.info('Health check completed', {
-      status: overallStatus,
       duration,
-      services: Object.entries(services).map(([name, status]) => `${name}:${status}`).join(',')
+      metadata: {
+        status: overallStatus,
+        services: Object.entries(services).map(([name, status]) => `${name}:${status}`).join(',')
+      }
     })
     
     // Return appropriate HTTP status code
@@ -81,7 +83,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown health check error'
     
-    logger.error('Health check failed', error, {
+    logger.error('Health check failed', error instanceof Error ? error : new Error(String(error)), {
       duration: Date.now() - startTime
     })
     
@@ -116,8 +118,7 @@ export async function GET(request: NextRequest) {
 // Detailed health check endpoint (requires authentication)
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(detailedHealth)
     
   } catch (error) {
-    logger.error('Detailed health check failed', error)
+    logger.error('Detailed health check failed', error instanceof Error ? error : new Error(String(error)))
     return NextResponse.json(
       { error: 'Failed to retrieve detailed health information' },
       { status: 500 }
@@ -171,8 +172,7 @@ export async function POST(request: NextRequest) {
 
 async function checkDatabaseHealth(): Promise<'healthy' | 'degraded' | 'unhealthy'> {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    const supabase = await createServerClient()
     
     const startTime = Date.now()
     
@@ -185,20 +185,20 @@ async function checkDatabaseHealth(): Promise<'healthy' | 'degraded' | 'unhealth
     const duration = Date.now() - startTime
     
     if (error) {
-      logger.warn('Database health check failed', { error: error.message, duration })
+      logger.warn('Database health check failed', { metadata: { error: error.message, duration } })
       return 'unhealthy'
     }
     
     // Check performance
     if (duration > 2000) { // 2 seconds
-      logger.warn('Database responding slowly', { duration })
+      logger.warn('Database responding slowly', { metadata: { duration } })
       return 'degraded'
     }
     
     return 'healthy'
     
   } catch (error) {
-    logger.error('Database health check error', error)
+    logger.error('Database health check error', error instanceof Error ? error : new Error(String(error)))
     return 'unhealthy'
   }
 }
@@ -212,33 +212,44 @@ async function checkE2BHealth(): Promise<'healthy' | 'degraded' | 'unhealthy'> {
     const startTime = Date.now()
     
     // Test E2B API connectivity
-    const response = await fetch('https://api.e2b.dev/health', {
-      headers: {
-        'Authorization': `Bearer ${process.env.E2B_API_KEY}`
-      },
-      timeout: 5000
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    
+    try {
+      const response = await fetch('https://api.e2b.dev/health', {
+        headers: {
+          'Authorization': `Bearer ${process.env.E2B_API_KEY}`
+        },
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
     
     const duration = Date.now() - startTime
     
     if (!response.ok) {
-      logger.warn('E2B API health check failed', { 
-        status: response.status, 
-        statusText: response.statusText,
-        duration 
+      logger.warn('E2B API health check failed', {
+        metadata: {
+          status: response.status, 
+          statusText: response.statusText,
+          duration 
+        }
       })
       return 'unhealthy'
     }
     
     if (duration > 3000) { // 3 seconds
-      logger.warn('E2B API responding slowly', { duration })
+      logger.warn('E2B API responding slowly', { metadata: { duration } })
       return 'degraded'
     }
     
     return 'healthy'
     
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      throw fetchError
+    }
   } catch (error) {
-    logger.error('E2B health check error', error)
+    logger.error('E2B health check error', error instanceof Error ? error : new Error(String(error)))
     return 'unhealthy'
   }
 }
@@ -252,30 +263,41 @@ async function checkGitHubHealth(): Promise<'healthy' | 'degraded' | 'unhealthy'
     const startTime = Date.now()
     
     // Test GitHub API connectivity
-    const response = await fetch('https://api.github.com/meta', {
-      timeout: 5000
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    
+    try {
+      const response = await fetch('https://api.github.com/meta', {
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
     
     const duration = Date.now() - startTime
     
     if (!response.ok) {
-      logger.warn('GitHub API health check failed', { 
-        status: response.status, 
-        statusText: response.statusText,
-        duration 
+      logger.warn('GitHub API health check failed', {
+        metadata: {
+          status: response.status, 
+          statusText: response.statusText,
+          duration 
+        }
       })
       return 'degraded' // GitHub issues shouldn't mark system as unhealthy
     }
     
     if (duration > 3000) { // 3 seconds
-      logger.warn('GitHub API responding slowly', { duration })
+      logger.warn('GitHub API responding slowly', { metadata: { duration } })
       return 'degraded'
     }
     
     return 'healthy'
     
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      throw fetchError
+    }
   } catch (error) {
-    logger.warn('GitHub health check error', error)
+    logger.warn('GitHub health check error', {})
     return 'degraded'
   }
 }
@@ -289,20 +311,25 @@ async function checkClaudeHealth(): Promise<'healthy' | 'degraded' | 'unhealthy'
     const startTime = Date.now()
     
     // Test Claude API connectivity with a minimal request
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ANTHROPIC_API_KEY}`,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 1,
-        messages: [{ role: 'user', content: 'ping' }]
-      }),
-      timeout: 10000
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000)
+    
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.ANTHROPIC_API_KEY}`,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }]
+        }),
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
     
     const duration = Date.now() - startTime
     
@@ -312,23 +339,29 @@ async function checkClaudeHealth(): Promise<'healthy' | 'degraded' | 'unhealthy'
         return 'unhealthy'
       }
       
-      logger.warn('Claude API health check failed', { 
-        status: response.status, 
-        statusText: response.statusText,
-        duration 
+      logger.warn('Claude API health check failed', {
+        metadata: {
+          status: response.status, 
+          statusText: response.statusText,
+          duration 
+        }
       })
       return 'degraded'
     }
     
     if (duration > 8000) { // 8 seconds
-      logger.warn('Claude API responding slowly', { duration })
+      logger.warn('Claude API responding slowly', { metadata: { duration } })
       return 'degraded'
     }
     
     return 'healthy'
     
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      throw fetchError
+    }
   } catch (error) {
-    logger.error('Claude health check error', error)
+    logger.error('Claude health check error', error instanceof Error ? error : new Error(String(error)))
     return 'unhealthy'
   }
 }

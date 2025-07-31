@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID
@@ -7,8 +7,8 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     const searchParams = request.nextUrl.searchParams
     const code = searchParams.get('code')

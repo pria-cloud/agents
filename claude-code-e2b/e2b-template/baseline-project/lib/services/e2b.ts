@@ -163,7 +163,7 @@ export class E2BSandboxService {
       })
       
     } catch (error) {
-      console.warn('Failed to initialize project structure:', error.message)
+      console.warn('Failed to initialize project structure:', error instanceof Error ? error.message : String(error))
       // Continue anyway - this is not critical
     }
   }
@@ -218,7 +218,7 @@ export class E2BSandboxService {
       console.error(`File operation failed:`, error)
       return { 
         success: false, 
-        error: error.message, 
+        error: error instanceof Error ? error.message : String(error), 
         path: operation.path 
       }
     }
@@ -264,7 +264,7 @@ export class E2BSandboxService {
       console.error('Command execution failed:', error)
       return {
         stdout: '',
-        stderr: error.message,
+        stderr: error instanceof Error ? error.message : String(error),
         exitCode: 1,
         duration: 0
       }
@@ -307,7 +307,7 @@ export class E2BSandboxService {
           deployed++
           
         } catch (error) {
-          errors.push(`Failed to deploy ${file.file_path}: ${error.message}`)
+          errors.push(`Failed to deploy ${file.file_path}: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
 
@@ -322,7 +322,7 @@ export class E2BSandboxService {
       return {
         success: false,
         deployed,
-        errors: [error.message]
+        errors: [error instanceof Error ? error.message : String(error)]
       }
     }
   }
@@ -375,7 +375,7 @@ export class E2BSandboxService {
       console.error('Failed to start dev server:', error)
       return {
         success: false,
-        error: error.message
+        error: error instanceof Error ? error.message : String(error)
       }
     }
   }
@@ -457,7 +457,7 @@ export class E2BSandboxService {
             size: content.length
           })
         } catch (error) {
-          console.warn(`Failed to read file ${filePath}:`, error.message)
+          console.warn(`Failed to read file ${filePath}:`, error instanceof Error ? error.message : String(error))
         }
       }
 

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { e2bSandboxService } from '@/lib/services/e2b'
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -121,7 +121,7 @@ async function handleCreateSandbox(
     console.error('Create sandbox error:', error)
     return NextResponse.json({ 
       error: 'Failed to create sandbox',
-      details: error.message 
+      details: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 })
   }
 }

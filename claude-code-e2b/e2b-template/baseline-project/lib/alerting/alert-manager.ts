@@ -124,10 +124,12 @@ export class AlertManager {
     }
 
     logger.info('Alert rule added/updated', {
-      ruleId: rule.id,
-      ruleName: rule.name,
-      severity: rule.severity,
-      enabled: rule.enabled
+      metadata: {
+        ruleId: rule.id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        enabled: rule.enabled
+      }
     })
   }
 
@@ -138,7 +140,7 @@ export class AlertManager {
     this.alertRules = this.alertRules.filter(rule => rule.id !== ruleId)
     this.lastAlertTime.delete(ruleId)
 
-    logger.info('Alert rule removed', { ruleId })
+    logger.info('Alert rule removed', { metadata: { ruleId } })
   }
 
   /**
@@ -183,9 +185,11 @@ export class AlertManager {
       await this.sendAlertResolution(alert)
       
       logger.info('Alert resolved', {
-        alertId,
-        ruleId: alert.ruleId,
-        duration: alert.resolvedAt.getTime() - alert.timestamp.getTime()
+        metadata: {
+          alertId,
+          ruleId: alert.ruleId,
+          duration: alert.resolvedAt.getTime() - alert.timestamp.getTime()
+        }
       })
     }
   }
@@ -273,7 +277,7 @@ export class AlertManager {
         }
       }
     } catch (error) {
-      logger.error('Failed to check alert rules', error)
+      logger.error('Failed to check alert rules', error instanceof Error ? error : new Error(String(error)))
     }
   }
 
@@ -296,7 +300,7 @@ export class AlertManager {
         cpuUsage: Math.min(cpuPercent, 100) // Cap at 100%
       }
     } catch (error) {
-      logger.error('Failed to update metrics', error)
+      logger.error('Failed to update metrics', error instanceof Error ? error : new Error(String(error)))
     }
   }
 
@@ -316,10 +320,12 @@ export class AlertManager {
     await this.sendAlert(alert)
 
     logger.warn('Alert triggered', {
-      alertId: alert.id,
-      ruleId: rule.id,
-      ruleName: rule.name,
-      severity: rule.severity
+      metadata: {
+        alertId: alert.id,
+        ruleId: rule.id,
+        ruleName: rule.name,
+        severity: rule.severity
+      }
     })
   }
 
@@ -337,9 +343,11 @@ export class AlertManager {
       try {
         await this.sendToChannel(channel, alert)
       } catch (error) {
-        logger.error('Failed to send alert to channel', error, {
-          channelType: channel.type,
-          alertId: alert.id
+        logger.error('Failed to send alert to channel', error instanceof Error ? error : new Error(String(error)), {
+          metadata: {
+            channelType: channel.type,
+            alertId: alert.id
+          }
         })
       }
     }
@@ -359,9 +367,11 @@ export class AlertManager {
       try {
         await this.sendResolutionToChannel(channel, alert)
       } catch (error) {
-        logger.error('Failed to send alert resolution to channel', error, {
-          channelType: channel.type,
-          alertId: alert.id
+        logger.error('Failed to send alert resolution to channel', error instanceof Error ? error : new Error(String(error)), {
+          metadata: {
+            channelType: channel.type,
+            alertId: alert.id
+          }
         })
       }
     }
@@ -385,7 +395,7 @@ export class AlertManager {
         await this.sendPagerDuty(channel.config, alert)
         break
       default:
-        logger.warn('Unknown alert channel type', { type: channel.type })
+        logger.warn('Unknown alert channel type', { metadata: { type: channel.type } })
     }
   }
 
@@ -498,17 +508,21 @@ export class AlertManager {
   private async sendEmail(config: any, alert: Alert): Promise<void> {
     // Email implementation would require email service integration
     logger.info('Email alert would be sent', {
-      to: config.to,
-      subject: `PRIA Alert: ${alert.severity.toUpperCase()}`,
-      alertId: alert.id
+      metadata: {
+        to: config.to,
+        subject: `PRIA Alert: ${alert.severity.toUpperCase()}`,
+        alertId: alert.id
+      }
     })
   }
 
   private async sendPagerDuty(config: any, alert: Alert): Promise<void> {
     // PagerDuty implementation
     logger.info('PagerDuty alert would be sent', {
-      serviceKey: config.serviceKey,
-      alertId: alert.id
+      metadata: {
+        serviceKey: config.serviceKey,
+        alertId: alert.id
+      }
     })
   }
 

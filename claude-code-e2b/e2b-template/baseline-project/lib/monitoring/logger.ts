@@ -1,7 +1,7 @@
 import pino from 'pino'
 
 // Create base logger instance
-const logger = pino({
+const baseLogger = pino({
   level: process.env.LOG_LEVEL || 'info',
   ...(process.env.NODE_ENV === 'production' 
     ? {
@@ -77,12 +77,12 @@ export class Logger {
 
   // Info level logging
   info(message: string, context?: LogContext): void {
-    logger.info({ ...this.baseContext, ...context }, message)
+    baseLogger.info({ ...this.baseContext, ...context }, message)
   }
 
   // Warning level logging
   warn(message: string, context?: LogContext): void {
-    logger.warn({ ...this.baseContext, ...context }, message)
+    baseLogger.warn({ ...this.baseContext, ...context }, message)
   }
 
   // Error level logging
@@ -96,13 +96,13 @@ export class Logger {
         stack: error.stack
       } : error
     }
-    logger.error(errorContext, message)
+    baseLogger.error(errorContext, message)
   }
 
   // Debug level logging (only in development)
   debug(message: string, context?: LogContext): void {
     if (process.env.NODE_ENV !== 'production') {
-      logger.debug({ ...this.baseContext, ...context }, message)
+      baseLogger.debug({ ...this.baseContext, ...context }, message)
     }
   }
 
@@ -119,7 +119,7 @@ export class Logger {
       } : error
     }
     
-    logger.fatal(criticalContext, message)
+    baseLogger.fatal(criticalContext, message)
     
     // In production, this should trigger immediate alerts
     if (process.env.NODE_ENV === 'production') {
@@ -151,7 +151,7 @@ export class Logger {
         })
       }
     } catch (alertError) {
-      logger.error({ error: alertError }, 'Failed to send critical alert')
+      baseLogger.error({ error: alertError }, 'Failed to send critical alert')
     }
   }
 
@@ -175,7 +175,7 @@ export class Logger {
       }
     }
 
-    logger[level](logContext, `API ${method} ${url} - ${statusCode} (${duration}ms)`)
+    baseLogger[level](logContext, `API ${method} ${url} - ${statusCode} (${duration}ms)`)
   }
 
   // Log Claude operation
@@ -388,15 +388,18 @@ export class ErrorTracker {
     }
 
     // Log the error
-    logger.error('Error tracked', error, context)
+    // Using baseLogger directly to avoid circular dependency
+    baseLogger.error({ error: error.message, stack: error.stack, ...context }, 'Error tracked')
 
     // Alert if error is recurring frequently
     if (existingError && existingError.count > 5) {
-      logger.critical(
-        `Recurring error detected: ${error.message}`,
-        error,
-        { ...context, errorCount: existingError.count }
-      )
+      // Using baseLogger directly to avoid circular dependency
+      baseLogger.fatal({ 
+        error: error.message, 
+        stack: error.stack,
+        ...context, 
+        errorCount: existingError.count 
+      }, `Recurring error detected: ${error.message}`)
     }
 
     // Clean up old errors (keep last 1000)
@@ -425,25 +428,33 @@ export class ErrorTracker {
 // Export error tracker instance
 export const errorTracker = ErrorTracker.getInstance()
 
-// Global error handler for unhandled exceptions
-process.on('uncaughtException', (error) => {
-  logger.critical('Uncaught Exception', error, { source: 'process' })
-  errorTracker.trackError(error, { source: 'uncaughtException' })
-  
-  // Give time for logs to flush before exiting
-  setTimeout(() => {
-    process.exit(1)
-  }, 1000)
-})
-
-process.on('unhandledRejection', (reason, promise) => {
-  const error = reason instanceof Error ? reason : new Error(String(reason))
-  logger.critical('Unhandled Promise Rejection', error, { 
-    source: 'process',
-    promise: promise.toString()
+// Global error handler for unhandled exceptions (Node.js only - not available in Edge Runtime)
+if (typeof process !== 'undefined' && process.on) {
+  process.on('uncaughtException', (error) => {
+    // Using baseLogger directly to avoid issues during initialization
+    baseLogger.fatal({ error: error.message, stack: error.stack, metadata: { source: 'process' } }, 'Uncaught Exception')
+    errorTracker.trackError(error, { metadata: { source: 'uncaughtException' } })
+    
+    // Give time for logs to flush before exiting
+    setTimeout(() => {
+      process.exit(1)
+    }, 1000)
   })
-  errorTracker.trackError(error, { source: 'unhandledRejection' })
-})
+
+  process.on('unhandledRejection', (reason, promise) => {
+    const error = reason instanceof Error ? reason : new Error(String(reason))
+    // Using baseLogger directly to avoid issues during initialization
+    baseLogger.fatal({ 
+      error: error.message, 
+      stack: error.stack,
+      metadata: {
+        source: 'process',
+        promise: promise.toString()
+      }
+    }, 'Unhandled Promise Rejection')
+    errorTracker.trackError(error, { metadata: { source: 'unhandledRejection' } })
+  })
+}
 
 // Health check endpoint data
 export interface HealthStatus {

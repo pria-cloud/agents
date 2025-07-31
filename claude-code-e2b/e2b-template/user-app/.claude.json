@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "env": {
+        "UPSTASH_REDIS_REST_URL": "",
+        "UPSTASH_REDIS_REST_TOKEN": ""
+      }
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@executeautomation/playwright-mcp-server"],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "/opt/playwright"
+      }
+    }
+  },
+  "defaults": {
+    "reasoning": true,
+    "mcpServers": ["context7", "playwright"]
+  }
+}

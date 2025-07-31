@@ -66,10 +66,12 @@ export class LoadTestSuite {
    */
   async executeLoadTest(config: LoadTestConfig): Promise<LoadTestResult> {
     logger.info('Starting load test', {
-      testName: config.name,
-      endpoint: config.endpoint,
-      concurrency: config.concurrency,
-      totalRequests: config.totalRequests
+      metadata: {
+        testName: config.name,
+        endpoint: config.endpoint,
+        concurrency: config.concurrency,
+        totalRequests: config.totalRequests
+      }
     })
 
     const startTime = performance.now()
@@ -78,7 +80,7 @@ export class LoadTestSuite {
 
     // Warmup phase
     if (config.warmupRequests && config.warmupRequests > 0) {
-      logger.info('Executing warmup requests', { count: config.warmupRequests })
+      logger.info('Executing warmup requests', { metadata: { count: config.warmupRequests } })
       await this.executeWarmup(config)
     }
 
@@ -110,11 +112,13 @@ export class LoadTestSuite {
 
         // Cool down between tests
         if (configs.indexOf(config) < configs.length - 1) {
-          logger.info('Cooling down between tests', { duration: '5 seconds' })
+          logger.info('Cooling down between tests', { metadata: { duration: '5 seconds' } })
           await this.sleep(5000)
         }
       } catch (error) {
-        logger.error('Load test failed', error, { testName: config.name })
+        logger.error('Load test failed', error instanceof Error ? error : new Error(String(error)), { 
+          metadata: { testName: config.name } 
+        })
         
         // Create failed result
         results.push({

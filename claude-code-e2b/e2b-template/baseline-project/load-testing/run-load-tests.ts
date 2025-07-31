@@ -33,7 +33,7 @@ async function runLoadTests(config: TestRunConfig = {}) {
   console.log(`📍 Target URL: ${baseUrl}`)
   console.log(`🔧 Test Suite: ${testSuite}`)
   console.log(`⚡ Parallel: ${parallel}`)
-  console.log('=' * 50)
+  console.log('='.repeat(50))
 
   const startTime = performance.now()
   
@@ -385,4 +385,5 @@ if (require.main === module) {
   })
 }
 
-export { runLoadTests, TestRunConfig }
+export { runLoadTests }
+export type { TestRunConfig }

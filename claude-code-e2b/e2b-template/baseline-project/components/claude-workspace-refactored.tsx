@@ -39,7 +39,7 @@ export function ClaudeWorkspace() {
   const [currentSession, setCurrentSession] = useState({
     id: '1',
     name: 'E-commerce Platform',
-    status: 'connected' as const,
+    status: 'connected' as 'connected' | 'disconnected',
     lastActive: '2 minutes ago'
   })
 

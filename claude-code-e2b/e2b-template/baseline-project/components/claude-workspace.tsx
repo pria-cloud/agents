@@ -400,9 +400,12 @@ function WorkspaceSidebar() {
       <div className="p-4">
         <nav className="space-y-2">
           {items.map((item, index) => {
-            if (item.separator) {
+            if ('separator' in item && item.separator) {
               return <Separator key={index} className="my-4" />
             }
+            
+            // Type guard to ensure we have a menu item
+            if (!('id' in item)) return null
             
             return (
               <Button
@@ -4202,7 +4205,7 @@ function DatabaseSchemaView() {
         fromColumn: 'user_id',
         toTable: 'users',
         toColumn: 'id',
-        type: 'many-to-one',
+        type: 'many-to-many',
         label: 'belongs to'
       },
       {
@@ -4211,7 +4214,7 @@ function DatabaseSchemaView() {
         fromColumn: 'session_id',
         toTable: 'sessions',
         toColumn: 'id',
-        type: 'many-to-one',
+        type: 'many-to-many',
         label: 'part of'
       }
     ]

@@ -69,7 +69,7 @@ export const CreateWorkflowStepSchema = z.object({
   description: z.string().optional(),
   position_x: z.number().int().default(0),
   position_y: z.number().int().default(0),
-  configuration: z.record(z.any()).default({})
+  configuration: z.record(z.string(), z.any()).default({})
 })
 
 export const CreateWorkflowConnectionSchema = z.object({
@@ -85,7 +85,7 @@ export const UpdateWorkflowStepSchema = z.object({
   description: z.string().optional(),
   position_x: z.number().int().optional(),
   position_y: z.number().int().optional(),
-  configuration: z.record(z.any()).optional()
+  configuration: z.record(z.string(), z.any()).optional()
 })
 
 // Generated file schemas
@@ -107,8 +107,8 @@ export const UpdateGeneratedFileSchema = z.object({
 export const CreateClaudeOperationSchema = z.object({
   session_id: UUIDSchema,
   operation_type: z.string().min(1).max(100),
-  input_data: z.record(z.any()),
-  output_data: z.record(z.any()).optional(),
+  input_data: z.record(z.string(), z.any()),
+  output_data: z.record(z.string(), z.any()).optional(),
   status: z.enum(['pending', 'in-progress', 'completed', 'failed']).default('pending')
 })
 
@@ -135,7 +135,7 @@ export const CreateSandboxSchema = z.object({
   session_id: UUIDSchema,
   template: z.string().optional(),
   timeout_ms: z.number().int().min(1000).max(600000).optional(),
-  environment: z.record(z.string()).optional()
+  environment: z.record(z.string(), z.string()).optional()
 })
 
 export const ExecuteCommandSchema = z.object({
@@ -273,7 +273,7 @@ export const CreateAPIEndpointSchema = z.object({
   responses: z.array(z.object({
     status_code: z.number().int(),
     description: z.string(),
-    schema: z.record(z.any()).optional()
+    schema: z.record(z.string(), z.any()).optional()
   })).default([]),
   authentication_required: z.boolean().default(false)
 })
@@ -323,7 +323,7 @@ export function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): {
     return { success: true, data: result }
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const firstError = error.errors[0]
+      const firstError = error.issues[0]
       const path = firstError.path.join('.')
       return {
         success: false,

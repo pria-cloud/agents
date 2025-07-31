@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { e2bSandboxService } from '@/lib/services/e2b'
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -101,7 +100,7 @@ async function handleExecuteCommand(
     console.error('Execute command error:', error)
     return NextResponse.json({ 
       error: 'Failed to execute command',
-      details: error.message 
+      details: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 })
   }
 }
@@ -169,7 +168,7 @@ async function handleFileOperation(
             .insert(fileData)
         }
       } catch (error) {
-        console.warn('Failed to save file to database:', error.message)
+        console.warn('Failed to save file to database:', error instanceof Error ? error.message : 'Unknown error')
         // Continue - this is not critical
       }
     }
@@ -194,7 +193,7 @@ async function handleFileOperation(
             onConflict: 'session_id,workspace_id,file_path'
           })
       } catch (error) {
-        console.warn('Failed to update generated_files:', error.message)
+        console.warn('Failed to update generated_files:', error instanceof Error ? error.message : 'Unknown error')
       }
     }
     
@@ -204,7 +203,7 @@ async function handleFileOperation(
     console.error('File operation error:', error)
     return NextResponse.json({ 
       error: 'Failed to execute file operation',
-      details: error.message 
+      details: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 })
   }
 }
@@ -256,7 +255,7 @@ async function handleInstallPackages(
     console.error('Install packages error:', error)
     return NextResponse.json({ 
       error: 'Failed to install packages',
-      details: error.message 
+      details: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 })
   }
 }

@@ -1,0 +1,16 @@
+# E2B Template Configuration for PRIA App Builder
+# This template includes Node.js 22, Claude Code SDK, Git, GitHub CLI, and PRIA development tools
+
+# Build configuration - must be at root level
+dockerfile = "e2b.Dockerfile"
+
+# Template configuration
+name = "pria-dev-env"
+description = "PRIA development environment with Node.js 22, Claude Code SDK, Git, and GitHub CLI"
+
+# Resource configuration
+cpu_count = 2
+memory_mb = 2048
+
+# Startup command to initialize the environment
+start_cmd = "/home/user/scripts/startup.sh"

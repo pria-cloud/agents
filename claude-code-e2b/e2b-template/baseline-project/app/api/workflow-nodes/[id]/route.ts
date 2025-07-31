@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    const { id } = await params
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -32,7 +33,7 @@ export async function PATCH(
     const { data, error } = await supabase
       .from('workflow_nodes')
       .update(updateData)
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('workspace_id', workspaceId)
       .select()
       .single()
@@ -51,11 +52,12 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    const { id } = await params
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -72,13 +74,13 @@ export async function DELETE(
       .from('workflow_connections')
       .delete()
       .eq('workspace_id', workspaceId)
-      .or(`from_node.eq.${params.id},to_node.eq.${params.id}`)
+      .or(`from_node.eq.${id},to_node.eq.${id}`)
     
     // Then delete the node
     const { error } = await supabase
       .from('workflow_nodes')
       .delete()
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('workspace_id', workspaceId)
     
     if (error) {

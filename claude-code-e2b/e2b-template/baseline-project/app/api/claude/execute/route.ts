@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { ClaudeAgent } from '@/lib/claude-sdk/agent'
 import { createAPIHandler } from '@/lib/validation/api-validation'
@@ -17,8 +17,8 @@ export const POST = createAPIHandler(
     requireAuth: true
   },
   async (request, { validatedData, workspaceId }) => {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     const { session_id, entry_point, files } = validatedData.body!
     

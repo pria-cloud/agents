@@ -6,11 +6,12 @@ import type { RequirementUpdate } from '@/lib/supabase/types'
 // GET /api/requirements/[id] - Get specific requirement
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const { id } = await params
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -21,7 +22,7 @@ export async function GET(
     const { data: requirement, error } = await supabase
       .from('requirements')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .single()
 
     if (error) {
@@ -42,11 +43,12 @@ export async function GET(
 // PUT /api/requirements/[id] - Update requirement
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const { id } = await params
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -61,7 +63,7 @@ export async function PUT(
     const { data: currentRequirement, error: fetchError } = await supabase
       .from('requirements')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .single()
 
     if (fetchError) {
@@ -85,7 +87,7 @@ export async function PUT(
     const { data: requirement, error } = await supabase
       .from('requirements')
       .update(updateData)
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single()
 
@@ -118,11 +120,12 @@ export async function PUT(
 // DELETE /api/requirements/[id] - Delete requirement
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const { id } = await params
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -134,7 +137,7 @@ export async function DELETE(
     const { data: currentRequirement, error: fetchError } = await supabase
       .from('requirements')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .single()
 
     if (fetchError) {
@@ -149,7 +152,7 @@ export async function DELETE(
     const { error } = await supabase
       .from('requirements')
       .delete()
-      .eq('id', params.id)
+      .eq('id', id)
 
     if (error) {
       console.error('Database error:', error)
@@ -165,7 +168,7 @@ export async function DELETE(
         event_type: 'requirement',
         event_title: 'Requirement Deleted',
         event_description: `Deleted requirement: ${currentRequirement.title}`,
-        event_data: { requirement_id: params.id, title: currentRequirement.title },
+        event_data: { requirement_id: id, title: currentRequirement.title },
         changes_summary: { added: 0, modified: 0, deleted: 1 },
         performed_by: 'User'
       })

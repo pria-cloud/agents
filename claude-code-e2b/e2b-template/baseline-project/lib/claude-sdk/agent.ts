@@ -3,7 +3,7 @@
 
 import { cookies } from 'next/headers'
 import createServerClient from '@/lib/supabase/server'
-import { ClaudeAgent as ClaudeCodeSDK } from '@anthropic-ai/claude-code'
+import { query } from '@anthropic-ai/claude-code'
 import { e2bSandboxService } from '@/lib/services/e2b'
 import type { 
   Requirement, 
@@ -43,19 +43,11 @@ export interface CodeGenerationResult {
 export class ClaudeAgent {
   private config?: ClaudeAgentConfig
   private supabase: ReturnType<typeof createServerClient>
-  private claudeSDK: ClaudeCodeSDK
 
   constructor(config?: ClaudeAgentConfig) {
     this.config = config
-    const cookieStore = cookies()
-    this.supabase = createServerClient(cookieStore)
-    
-    // Initialize Claude Code SDK
-    this.claudeSDK = new ClaudeCodeSDK({
-      apiKey: process.env.ANTHROPIC_API_KEY!,
-      workspaceDir: config?.projectPath || '/tmp/claude-workspace',
-      tools: ['edit', 'read', 'bash', 'computer']
-    })
+    // Note: This will be initialized when the agent is actually used
+    this.supabase = null as any
   }
 
   /**
@@ -71,7 +63,22 @@ export class ClaudeAgent {
       // Use Claude Code SDK for requirement analysis
       const analysisPrompt = this.buildRequirementAnalysisPrompt(requirements)
       
-      const claudeResponse = await this.claudeSDK.chat(analysisPrompt)
+      let claudeResponse = ''
+      for await (const message of query({
+        prompt: analysisPrompt,
+        options: {
+          maxTurns: 1
+        }
+      })) {
+        if (message.type === 'assistant' && message.message.content) {
+          const content = Array.isArray(message.message.content) 
+            ? message.message.content.find((c: any) => c.type === 'text')?.text || ''
+            : message.message.content
+          claudeResponse += content || ''
+        } else if (message.type === 'result' && message.subtype === 'success') {
+          claudeResponse += message.result || ''
+        }
+      }
       
       // Parse Claude's response to extract technical specifications
       const techSpecs: TechnicalSpec[] = this.parseAnalysisResponse(claudeResponse, requirements)
@@ -80,7 +87,8 @@ export class ClaudeAgent {
       // The parseAnalysisResponse method handles the conversion
 
       // Save technical specs to database
-      const { data: savedSpecs, error } = await this.supabase
+      const supabase = await createServerClient()
+      const { data: savedSpecs, error } = await supabase
         .from('technical_specs')
         .insert(techSpecs.map(spec => ({
           session_id: spec.session_id,
@@ -123,11 +131,22 @@ export class ClaudeAgent {
       // Use Claude Code SDK for actual code generation
       const codeGenPrompt = this.buildCodeGenerationPrompt(request)
       
-      const claudeResponse = await this.claudeSDK.generateCode(codeGenPrompt, {
-        fileTypes: ['tsx', 'ts', 'json'],
-        framework: 'nextjs',
-        testFramework: request.generateTests ? 'vitest' : undefined
-      })
+      let claudeResponse = ''
+      for await (const message of query({
+        prompt: codeGenPrompt,
+        options: {
+          maxTurns: 3
+        }
+      })) {
+        if (message.type === 'assistant' && message.message.content) {
+          const content = Array.isArray(message.message.content) 
+            ? message.message.content.find((c: any) => c.type === 'text')?.text || ''
+            : message.message.content
+          claudeResponse += content || ''
+        } else if (message.type === 'result' && message.subtype === 'success') {
+          claudeResponse += message.result || ''
+        }
+      }
       
       const generatedFiles: CodeGenerationResult['generatedFiles'] = this.parseCodeGenerationResponse(claudeResponse)
       
@@ -136,8 +155,8 @@ export class ClaudeAgent {
 
       // Save generated files to database
       const fileInserts: GeneratedFileInsert[] = generatedFiles.map(file => ({
-        session_id: this.config.sessionId,
-        workspace_id: this.config.workspaceId,
+        session_id: this.config?.sessionId || '',
+        workspace_id: this.config?.workspaceId || '',
         file_path: file.path,
         file_type: file.type,
         content: file.content,
@@ -145,7 +164,8 @@ export class ClaudeAgent {
         created_by_claude: true
       }))
 
-      const { error } = await this.supabase
+      const supabase2 = await createServerClient()
+      const { error } = await supabase2
         .from('generated_files')
         .upsert(fileInserts, { onConflict: 'session_id,file_path' })
 
@@ -181,11 +201,22 @@ export class ClaudeAgent {
       // Use Claude Code SDK to analyze and update existing code
       const updatePrompt = this.buildCodeUpdatePrompt(requirementId, changes)
       
-      const claudeResponse = await this.claudeSDK.updateCode(updatePrompt, {
-        requirementId,
-        changes,
-        preserveExisting: true
-      })
+      let claudeResponse = ''
+      for await (const message of query({
+        prompt: updatePrompt,
+        options: {
+          maxTurns: 2
+        }
+      })) {
+        if (message.type === 'assistant' && message.message.content) {
+          const content = Array.isArray(message.message.content) 
+            ? message.message.content.find((c: any) => c.type === 'text')?.text || ''
+            : message.message.content
+          claudeResponse += content || ''
+        } else if (message.type === 'result' && message.subtype === 'success') {
+          claudeResponse += message.result || ''
+        }
+      }
       
       const result: CodeGenerationResult = this.parseCodeUpdateResponse(claudeResponse)
 
@@ -214,7 +245,7 @@ export class ClaudeAgent {
       return crypto.randomUUID() // fallback ID
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (await createServerClient())
       .from('claude_operations')
       .insert({
         session_id: finalSessionId,
@@ -238,7 +269,7 @@ export class ClaudeAgent {
    * Mark operation as completed
    */
   private async completeOperation(operationId: string, outputData: any): Promise<void> {
-    await this.supabase
+    await (await createServerClient())
       .from('claude_operations')
       .update({
         status: 'completed',
@@ -252,7 +283,7 @@ export class ClaudeAgent {
    * Mark operation as failed
    */
   private async failOperation(operationId: string, errorMessage: string): Promise<void> {
-    await this.supabase
+    await (await createServerClient())
       .from('claude_operations')
       .update({
         status: 'failed',
@@ -479,8 +510,7 @@ import createServerClient from '@/lib/supabase/server'
 // GET /api/${routeName}
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const supabase = await createServerClient()
     
     // Authentication check
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -501,8 +531,7 @@ export async function GET(request: NextRequest) {
 // POST /api/${routeName}
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const supabase = await createServerClient()
     
     // Authentication check
     const { data: { user }, error: authError } = await supabase.auth.getUser()

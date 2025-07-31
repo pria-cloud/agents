@@ -91,9 +91,11 @@ export class GlobalAuthService {
       const context = this.createAuthContext(userResult.user!, authResult.token!)
       
       logger.info('User authenticated successfully', {
-        userId: userResult.user!.id,
-        workspaceId: userResult.user!.app_metadata?.workspace_id,
-        email: userResult.user!.email
+        metadata: {
+          userId: userResult.user!.id,
+          workspaceId: userResult.user!.app_metadata?.workspace_id,
+          email: userResult.user!.email
+        }
       })
 
       return {
@@ -102,10 +104,12 @@ export class GlobalAuthService {
       }
 
     } catch (error) {
-      logger.error('Authentication error', error, {
-        url: request.url,
-        method: request.method,
-        userAgent: request.headers.get('user-agent')
+      logger.error('Authentication error', error instanceof Error ? error : new Error(String(error)), {
+        metadata: {
+          url: request.url,
+          method: request.method,
+          userAgent: request.headers.get('user-agent')
+        }
       })
 
       return {
@@ -223,7 +227,7 @@ export class GlobalAuthService {
         }
       }
 
-      logger.error('JWT validation error', error)
+      logger.error('JWT validation error', error instanceof Error ? error : new Error(String(error)))
       return {
         success: false,
         error: 'Token validation failed'
@@ -262,7 +266,7 @@ export class GlobalAuthService {
       const { data: user, error } = await supabase.auth.getUser()
       
       if (error) {
-        logger.warn('Supabase user fetch error', { error: error.message, userId })
+        logger.warn('Supabase user fetch error', { metadata: { error: error.message, userId } })
         return {
           success: false,
           error: 'User session invalid',
@@ -281,8 +285,10 @@ export class GlobalAuthService {
       // Verify user ID matches
       if (user.user.id !== userId) {
         logger.warn('User ID mismatch in token', { 
-          tokenUserId: userId, 
-          supabaseUserId: user.user.id 
+          metadata: {
+            tokenUserId: userId, 
+            supabaseUserId: user.user.id 
+          }
         })
         return {
           success: false,
@@ -294,7 +300,7 @@ export class GlobalAuthService {
       // Check if user has workspace access
       const workspaceId = user.user.app_metadata?.workspace_id
       if (!workspaceId) {
-        logger.warn('User without workspace access', { userId: user.user.id })
+        logger.warn('User without workspace access', { metadata: { userId: user.user.id } })
         return {
           success: false,
           error: 'Workspace access required',
@@ -308,7 +314,7 @@ export class GlobalAuthService {
       }
 
     } catch (error) {
-      logger.error('Supabase user fetch error', error, { userId })
+      logger.error('Supabase user fetch error', error instanceof Error ? error : new Error(String(error)), { metadata: { userId } })
       return {
         success: false,
         error: 'Authentication service error',
@@ -395,9 +401,11 @@ export class GlobalAuthService {
 
         if (!hasRequiredPermissions) {
           logger.warn('Insufficient permissions', {
-            userId: context.user.id,
-            requiredPermissions,
-            userPermissions: context.user.permissions
+            metadata: {
+              userId: context.user.id,
+              requiredPermissions,
+              userPermissions: context.user.permissions
+            }
           })
 
           return NextResponse.json(
@@ -415,9 +423,11 @@ export class GlobalAuthService {
       // Check workspace access
       if (requiredWorkspace && !context.hasWorkspaceAccess(requiredWorkspace)) {
         logger.warn('Workspace access denied', {
-          userId: context.user.id,
-          requiredWorkspace,
-          userWorkspace: context.user.workspaceId
+          metadata: {
+            userId: context.user.id,
+            requiredWorkspace,
+            userWorkspace: context.user.workspaceId
+          }
         })
 
         return NextResponse.json(

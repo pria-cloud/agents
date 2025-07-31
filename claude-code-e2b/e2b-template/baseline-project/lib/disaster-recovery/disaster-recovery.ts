@@ -1,5 +1,5 @@
 import { logger } from '@/lib/monitoring/logger'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { alertManager } from '@/lib/alerting/alert-manager'
 
@@ -90,7 +90,9 @@ export class DisasterRecoveryManager {
     const backupId = `backup-${Date.now()}`
     const timestamp = new Date()
     
-    logger.info('Starting backup creation', { backupId, type })
+    logger.info('Starting backup creation', { 
+      metadata: { backupId, type } 
+    })
 
     try {
       let backupData: any = {}
@@ -128,16 +130,20 @@ export class DisasterRecoveryManager {
       }
 
       logger.info('Backup created successfully', {
-        backupId,
-        type,
-        size,
-        location
+        metadata: {
+          backupId,
+          type,
+          size,
+          location
+        }
       })
 
       return metadata
 
     } catch (error) {
-      logger.error('Backup creation failed', error, { backupId, type })
+      logger.error('Backup creation failed', error instanceof Error ? error : new Error(String(error)), { 
+        metadata: { backupId, type } 
+      })
       
       return {
         id: backupId,
@@ -169,7 +175,7 @@ export class DisasterRecoveryManager {
     const restoredComponents: string[] = []
     const errors: string[] = []
 
-    logger.info('Starting restore operation', { backupId, components, dryRun })
+    logger.info('Starting restore operation', { metadata: { backupId, components, dryRun } })
 
     try {
       // Load backup data
@@ -212,12 +218,14 @@ export class DisasterRecoveryManager {
       const success = errors.length === 0
 
       logger.info('Restore operation completed', {
-        backupId,
-        success,
-        restoredComponents,
-        errors,
-        duration,
-        dryRun
+        metadata: {
+          backupId,
+          success,
+          restoredComponents,
+          errors,
+          duration,
+          dryRun
+        }
       })
 
       return {
@@ -229,7 +237,9 @@ export class DisasterRecoveryManager {
 
     } catch (error) {
       const duration = Date.now() - startTime
-      logger.error('Restore operation failed', error, { backupId, duration })
+      logger.error('Restore operation failed', error instanceof Error ? error : new Error(String(error)), { 
+        metadata: { backupId, duration } 
+      })
 
       return {
         success: false,
@@ -261,7 +271,7 @@ export class DisasterRecoveryManager {
       throw new Error(`Recovery plan ${planId} not found`)
     }
 
-    logger.info('Executing recovery plan', { planId, planName: plan.name, disasterEventId })
+    logger.info('Executing recovery plan', { metadata: { planId, planName: plan.name, disasterEventId } })
 
     try {
       // Execute components in order of dependencies
@@ -269,8 +279,10 @@ export class DisasterRecoveryManager {
 
       for (const component of sortedComponents) {
         logger.info('Executing recovery component', {
-          componentType: component.type,
-          componentName: component.name
+          metadata: {
+            componentType: component.type,
+            componentName: component.name
+          }
         })
 
         for (const step of component.recoverySteps) {
@@ -279,25 +291,31 @@ export class DisasterRecoveryManager {
             completedSteps.push(step.id)
             
             logger.info('Recovery step completed', {
-              stepId: step.id,
-              description: step.description
+              metadata: {
+                stepId: step.id,
+                description: step.description
+              }
             })
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'
             failedSteps.push({ stepId: step.id, error: errorMessage })
             
-            logger.error('Recovery step failed', error, {
-              stepId: step.id,
-              description: step.description
+            logger.error('Recovery step failed', error instanceof Error ? error : new Error(String(error)), {
+              metadata: {
+                stepId: step.id,
+                description: step.description
+              }
             })
 
             // Execute rollback if available
             if (step.rollback) {
               try {
                 await this.executeCommand(step.rollback, step.timeout)
-                logger.info('Rollback executed for failed step', { stepId: step.id })
+                logger.info('Rollback executed for failed step', { metadata: { stepId: step.id } })
               } catch (rollbackError) {
-                logger.error('Rollback failed', rollbackError, { stepId: step.id })
+                logger.error('Rollback failed', rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)), { 
+                  metadata: { stepId: step.id } 
+                })
               }
             }
           }
@@ -313,11 +331,13 @@ export class DisasterRecoveryManager {
       }
 
       logger.info('Recovery plan execution completed', {
-        planId,
-        success,
-        completedSteps: completedSteps.length,
-        failedSteps: failedSteps.length,
-        duration
+        metadata: {
+          planId,
+          success,
+          completedSteps: completedSteps.length,
+          failedSteps: failedSteps.length,
+          duration
+        }
       })
 
       return {
@@ -329,7 +349,9 @@ export class DisasterRecoveryManager {
 
     } catch (error) {
       const duration = Date.now() - startTime
-      logger.error('Recovery plan execution failed', error, { planId, duration })
+      logger.error('Recovery plan execution failed', error instanceof Error ? error : new Error(String(error)), { 
+        metadata: { planId, duration } 
+      })
 
       return {
         success: false,
@@ -379,12 +401,14 @@ export class DisasterRecoveryManager {
       }
     )
 
-    logger.error('Disaster event declared', {
-      eventId,
-      type,
-      severity,
-      description,
-      affectedComponents
+    logger.warn('Disaster event declared', {
+      metadata: {
+        eventId,
+        type,
+        severity,
+        description,
+        affectedComponents
+      }
     })
 
     return eventId
@@ -408,9 +432,11 @@ export class DisasterRecoveryManager {
     })
 
     logger.info('Disaster event resolved', {
-      eventId,
-      duration: event.resolvedAt.getTime() - event.detectedAt.getTime(),
-      resolution
+      metadata: {
+        eventId,
+        duration: event.resolvedAt.getTime() - event.detectedAt.getTime(),
+        resolution
+      }
     })
 
     this.activeDisasters.delete(eventId)
@@ -442,7 +468,7 @@ export class DisasterRecoveryManager {
       throw new Error(`Recovery plan ${planId} not found`)
     }
 
-    logger.info('Testing recovery plan', { planId, planName: plan.name })
+    logger.info('Testing recovery plan', { metadata: { planId, planName: plan.name } })
 
     for (const component of plan.components) {
       const componentStartTime = Date.now()
@@ -473,10 +499,12 @@ export class DisasterRecoveryManager {
     plan.lastTested = new Date()
 
     logger.info('Recovery plan test completed', {
-      planId,
-      success,
-      testResults: testResults.length,
-      overallDuration
+      metadata: {
+        planId,
+        success,
+        testResults: testResults.length,
+        overallDuration
+      }
     })
 
     return {
@@ -582,13 +610,13 @@ export class DisasterRecoveryManager {
   private async storeBackup(backupId: string, data: any): Promise<string> {
     // In production, store to external storage (S3, GCS, etc.)
     const location = `/backups/${backupId}.json`
-    logger.info('Backup stored', { backupId, location })
+    logger.info('Backup stored', { metadata: { backupId, location } })
     return location
   }
 
   private async loadBackup(backupId: string): Promise<any> {
     // Load backup from storage
-    logger.info('Loading backup', { backupId })
+    logger.info('Loading backup', { metadata: { backupId } })
     return {} // Mock data
   }
 
@@ -655,7 +683,7 @@ export class DisasterRecoveryManager {
 
   private async executeCommand(command: string, timeoutSeconds: number): Promise<void> {
     // In production, this would execute actual commands
-    logger.info('Executing command', { command, timeout: timeoutSeconds })
+    logger.info('Executing command', { metadata: { command, timeout: timeoutSeconds } })
     
     // Simulate command execution
     await new Promise(resolve => setTimeout(resolve, 100))
@@ -663,7 +691,7 @@ export class DisasterRecoveryManager {
 
   private async testComponent(component: RecoveryComponent): Promise<void> {
     // Test component recovery capability
-    logger.info('Testing component', { componentName: component.name })
+    logger.info('Testing component', { metadata: { componentName: component.name } })
     
     // Simulate component test
     await new Promise(resolve => setTimeout(resolve, 1000))
@@ -781,7 +809,7 @@ export class DisasterRecoveryManager {
       try {
         await this.createBackup('incremental')
       } catch (error) {
-        logger.error('Automated backup failed', error)
+        logger.error('Automated backup failed', error instanceof Error ? error : new Error(String(error)))
       }
     }, 6 * 60 * 60 * 1000) // Every 6 hours
 

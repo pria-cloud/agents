@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import createServerClient from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { GitHubUtils } from '@/lib/services/github'
 import { githubSecurity, validateGitHubOperation } from '@/lib/security/github-security'
@@ -13,8 +13,8 @@ const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || `${process.env.NE
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -90,8 +90,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -154,9 +154,11 @@ export async function POST(request: NextRequest) {
       
       logger.info('GitHub integration connected', {
         workspaceId,
-        repositoryUrl: repository_url,
-        branch: branch || 'main',
-        githubUser: tokenValidation.user?.login
+        metadata: {
+          repositoryUrl: repository_url,
+          branch: branch || 'main',
+          githubUser: tokenValidation.user?.login
+        }
       })
       
       if (error) {

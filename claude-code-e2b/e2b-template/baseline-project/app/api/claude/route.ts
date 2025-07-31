@@ -6,8 +6,7 @@ import { createClaudeAgent, type ClaudeAgentConfig } from '@/lib/claude-sdk/agen
 // POST /api/claude - Execute Claude Code SDK operations
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const supabase = await createServerClient()
     
     // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -149,8 +148,7 @@ export async function POST(request: NextRequest) {
 // GET /api/claude - Get Claude operations history
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    const supabase = await createServerClient()
     
     // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser()

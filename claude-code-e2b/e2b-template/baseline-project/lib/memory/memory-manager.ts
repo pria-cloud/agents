@@ -157,13 +157,17 @@ export class MemoryManager {
           global.gc()
           gcTriggered = true
           logger.info('Forced garbage collection triggered', {
-            heapUsedBefore: beforeStats.heapUsed,
-            threshold: this.thresholds.forceGCThreshold
+            metadata: {
+              heapUsedBefore: beforeStats.heapUsed,
+              threshold: this.thresholds.forceGCThreshold
+            }
           })
         } else {
           logger.warn('Garbage collection requested but not available', {
-            heapUsed: beforeStats.heapUsed,
-            threshold: this.thresholds.forceGCThreshold
+            metadata: {
+              heapUsed: beforeStats.heapUsed,
+              threshold: this.thresholds.forceGCThreshold
+            }
           })
         }
       }
@@ -174,12 +178,14 @@ export class MemoryManager {
       this.lastCleanup = Date.now()
 
       logger.info('Memory cleanup completed', {
-        conversationsCleanedUp,
-        sandboxesCleanedUp,
-        memoryFreedMB: memoryFreed,
-        gcTriggered,
-        heapUsedBefore: beforeStats.heapUsed,
-        heapUsedAfter: afterStats.heapUsed
+        metadata: {
+          conversationsCleanedUp,
+          sandboxesCleanedUp,
+          memoryFreedMB: memoryFreed,
+          gcTriggered,
+          heapUsedBefore: beforeStats.heapUsed,
+          heapUsedAfter: afterStats.heapUsed
+        }
       })
 
       return {
@@ -190,7 +196,7 @@ export class MemoryManager {
       }
 
     } catch (error) {
-      logger.error('Memory cleanup failed', error)
+      logger.error('Memory cleanup failed', error instanceof Error ? error : new Error(String(error)))
       return {
         conversationsCleanedUp: 0,
         sandboxesCleanedUp: 0,
@@ -333,26 +339,32 @@ export class MemoryManager {
 
       // Check thresholds
       if (stats.heapUsed > this.thresholds.heapUsedCritical) {
-        logger.error('Critical memory usage detected', {
-          heapUsedMB: stats.heapUsed,
-          thresholdMB: this.thresholds.heapUsedCritical,
-          conversationContexts: this.conversationContexts.size,
-          sandboxInstances: this.sandboxInstances.size
+        logger.warn('Critical memory usage detected', {
+          metadata: {
+            heapUsedMB: stats.heapUsed,
+            thresholdMB: this.thresholds.heapUsedCritical,
+            conversationContexts: this.conversationContexts.size,
+            sandboxInstances: this.sandboxInstances.size
+          }
         })
       } else if (stats.heapUsed > this.thresholds.heapUsedWarning) {
         logger.warn('High memory usage detected', {
-          heapUsedMB: stats.heapUsed,
-          thresholdMB: this.thresholds.heapUsedWarning
+          metadata: {
+            heapUsedMB: stats.heapUsed,
+            thresholdMB: this.thresholds.heapUsedWarning
+          }
         })
       }
 
       // Detect potential leaks
       const leakDetection = this.detectMemoryLeaks()
       if (leakDetection.hasLeak && leakDetection.severity === 'high') {
-        logger.error('Potential memory leak detected', {
-          leakType: leakDetection.leakType,
-          severity: leakDetection.severity,
-          recommendations: leakDetection.recommendations
+        logger.warn('Potential memory leak detected', {
+          metadata: {
+            leakType: leakDetection.leakType,
+            severity: leakDetection.severity,
+            recommendations: leakDetection.recommendations
+          }
         })
       }
     }, 60000) // Check every minute
@@ -398,7 +410,12 @@ export class MemoryManager {
             data.instance.cleanup()
           }
         } catch (error) {
-          logger.warn('Failed to cleanup sandbox instance', error, { sandboxId })
+          logger.warn('Failed to cleanup sandbox instance', { 
+            metadata: { 
+              sandboxId, 
+              error: error instanceof Error ? error.message : String(error) 
+            } 
+          })
         }
 
         this.sandboxInstances.delete(sandboxId)

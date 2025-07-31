@@ -6,8 +6,8 @@ import type { RequirementInsert, RequirementUpdate } from '@/lib/supabase/types'
 // GET /api/requirements - List requirements for current session
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -45,8 +45,8 @@ export async function GET(request: NextRequest) {
 // POST /api/requirements - Create new requirement
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const supabase = createServerClient(cookieStore)
+    // cookieStore is now handled internally by createServerClient
+    const supabase = await createServerClient()
     
     // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser()
