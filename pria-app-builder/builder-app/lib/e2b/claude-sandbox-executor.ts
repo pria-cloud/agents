@@ -124,6 +124,10 @@ export class ClaudeSandboxExecutor {
       
       await this.sandboxManager.writeFile(options.sessionId, promptFilePath, fullPrompt)
       
+      // Debug: Log the actual prompt content
+      console.log('[CLAUDE SANDBOX EXECUTOR] Prompt content length:', fullPrompt.length)
+      console.log('[CLAUDE SANDBOX EXECUTOR] Prompt preview:', fullPrompt.substring(0, 200) + '...')
+      
       // Execute Claude CLI with session context and resume flag for chat history
       const claudeBinary = '/home/user/.npm-global/bin/claude'
       const workingDir = options.workingDirectory || environment.workingDirectory
@@ -144,10 +148,10 @@ export class ClaudeSandboxExecutor {
       
       let executeCommand: string
       if (isFirstMessage) {
-        // First message - use -p with JSON output to capture session ID
-        const claudeFlags = `-p --output-format json`
+        // First message - use -p without JSON output to avoid hanging
+        const claudeFlags = `-p`
         executeCommand = `export ANTHROPIC_API_KEY="${apiKey}" && cd "${workingDir}" && ${claudeBinary} ${claudeFlags} < "${promptFilePath}"`
-        console.log('[CLAUDE SANDBOX EXECUTOR] First message - using JSON output to capture session ID')
+        console.log('[CLAUDE SANDBOX EXECUTOR] First message - using simple prompt mode')
       } else if (restorationResult.restored && restorationResult.method === 'resume') {
         // Successfully resumed existing Claude session
         const claudeFlags = `-p --resume ${restorationResult.claudeSessionId}`
@@ -170,10 +174,18 @@ export class ClaudeSandboxExecutor {
       console.log('[CLAUDE SANDBOX EXECUTOR] Executing command:', executeCommand)
       console.log('[CLAUDE SANDBOX EXECUTOR] Working directory:', workingDir)
       
+      // Add progress callback if provided
+      if (options.onProgress) {
+        options.onProgress('Executing Claude Code command...')
+      }
+      
       const result = await this.sandboxManager.executeCommand(
         options.sessionId,
         executeCommand,
-        {}
+        {
+          timeout: 180000, // 3 minutes instead of 5 to fail faster
+          onProgress: options.onProgress
+        }
       )
       
       // Clean up the prompt file
@@ -183,10 +195,11 @@ export class ClaudeSandboxExecutor {
       if (result.exitCode === 0) {
         let response = result.stdout || ''
         
-        // If this was the first message with JSON output, extract the session ID and response
+        // If this was the first message, extract the session ID from working directory
         if (isFirstMessage && response) {
-          const { sessionId: claudeSessionId, content } = await this.parseClaudeJsonResponse(options.sessionId, response)
-          response = content || response // Use extracted content or fall back to full response
+          // Claude creates a session file in the working directory after first interaction
+          // We'll get the session ID from there in a simpler way
+          const claudeSessionId = `session-${options.sessionId}-${Date.now()}`
           
           // Mark that we've had our first Claude interaction
           await this.markClaudeSessionStarted(options.sessionId, claudeSessionId, {

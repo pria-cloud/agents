@@ -285,7 +285,13 @@ export async function POST(request: NextRequest) {
                       {
                         workingDirectory: environment.workingDirectory,
                         maxTurns: 10,
-                        preserveContext: true
+                        preserveContext: true,
+                        onProgress: (progress: string) => {
+                          sendEvent('message_chunk', {
+                            content: `🔄 ${progress}\n`,
+                            role: 'assistant'
+                          })
+                        }
                       }
                     )
                   } finally {
@@ -304,10 +310,14 @@ export async function POST(request: NextRequest) {
                     console.log(`[STREAM API] Subagent execution completed in ${claudeResult.duration}ms`)
                   } else {
                     console.warn(`[STREAM API] Subagent delegation failed: ${claudeResult.error}`)
-                    sendEvent('message_chunk', {
-                      content: `Subagent delegation failed, falling back to direct execution...\n`,
-                      role: 'assistant'
+                    sendEvent('error', {
+                      message: `Subagent execution failed: ${claudeResult.error}`,
+                      phase: currentPhase.number,
+                      subagent: subAgentName
                     })
+                    // Don't fall back to direct execution to avoid duplicate processing
+                    sendEvent('done', { success: false, error: claudeResult.error })
+                    return
                   }
                 } 
                 
