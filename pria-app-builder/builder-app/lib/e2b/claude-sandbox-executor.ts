@@ -14,6 +14,7 @@ export interface ClaudeSDKExecutionOptions {
   maxTurns?: number
   timeout?: number
   preserveContext?: boolean
+  onProgress?: (progress: string) => void
 }
 
 export interface ClaudeSDKExecutionResult {
@@ -148,10 +149,10 @@ export class ClaudeSandboxExecutor {
       
       let executeCommand: string
       if (isFirstMessage) {
-        // First message - use -p without JSON output to avoid hanging
-        const claudeFlags = `-p`
+        // First message - use streaming JSON output for real-time responses
+        const claudeFlags = `-p --output-format stream-json`
         executeCommand = `export ANTHROPIC_API_KEY="${apiKey}" && cd "${workingDir}" && ${claudeBinary} ${claudeFlags} < "${promptFilePath}"`
-        console.log('[CLAUDE SANDBOX EXECUTOR] First message - using simple prompt mode')
+        console.log('[CLAUDE SANDBOX EXECUTOR] First message - using streaming JSON output for real-time responses')
       } else if (restorationResult.restored && restorationResult.method === 'resume') {
         // Successfully resumed existing Claude session
         const claudeFlags = `-p --resume ${restorationResult.claudeSessionId}`
@@ -194,12 +195,13 @@ export class ClaudeSandboxExecutor {
       // Parse the result from Claude CLI
       if (result.exitCode === 0) {
         let response = result.stdout || ''
+        let claudeSessionId: string | undefined
         
-        // If this was the first message, extract the session ID from working directory
+        // If this was the first message with streaming JSON, parse the stream
         if (isFirstMessage && response) {
-          // Claude creates a session file in the working directory after first interaction
-          // We'll get the session ID from there in a simpler way
-          const claudeSessionId = `session-${options.sessionId}-${Date.now()}`
+          const { content, sessionId } = await this.parseStreamingJsonResponse(result.stdout, options.onProgress)
+          response = content
+          claudeSessionId = sessionId || `session-${options.sessionId}-${Date.now()}`
           
           // Mark that we've had our first Claude interaction
           await this.markClaudeSessionStarted(options.sessionId, claudeSessionId, {
@@ -387,6 +389,65 @@ Please acknowledge that you understand the context and are ready to continue our
     } catch (error) {
       console.error('[CLAUDE SANDBOX EXECUTOR] Error in conversation restoration:', error)
       return { restored: false, method: 'none' }
+    }
+  }
+
+  /**
+   * Parse Claude's streaming JSON response for real-time updates
+   */
+  private async parseStreamingJsonResponse(
+    streamOutput: string, 
+    onProgress?: (progress: string) => void
+  ): Promise<{ content: string, sessionId: string | null }> {
+    let finalContent = ''
+    let claudeSessionId: string | null = null
+    
+    try {
+      // Split by newlines and process each JSON message
+      const lines = streamOutput.split('\n').filter(line => line.trim())
+      
+      for (const line of lines) {
+        try {
+          const message = JSON.parse(line)
+          
+          // Handle different message types from streaming JSON
+          switch (message.type) {
+            case 'init':
+              claudeSessionId = message.session_id
+              if (onProgress) onProgress('Claude Code session initialized')
+              break
+              
+            case 'message':
+              if (message.role === 'assistant' && message.content) {
+                finalContent += message.content
+                if (onProgress) onProgress(`Received: ${message.content.substring(0, 50)}...`)
+              }
+              break
+              
+            case 'result':
+              if (onProgress) onProgress('Claude Code execution completed')
+              break
+              
+            default:
+              // Handle other message types
+              if (message.content) {
+                finalContent += message.content
+              }
+          }
+        } catch (parseError) {
+          // Skip invalid JSON lines, might be partial output
+          console.warn('[CLAUDE SANDBOX EXECUTOR] Failed to parse JSON line:', line.substring(0, 100))
+        }
+      }
+    } catch (error) {
+      console.error('[CLAUDE SANDBOX EXECUTOR] Failed to parse streaming JSON response:', error)
+      // Fallback to using the raw output
+      finalContent = streamOutput
+    }
+    
+    return {
+      content: finalContent || streamOutput,
+      sessionId: claudeSessionId
     }
   }
 
