@@ -1,5 +1,12 @@
 {
   "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": ["-y", "@supabase/mcp-server-supabase@latest"],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "sbp_5a15b67b3afde261474e3182caadc0605af28f0f"
+      }
+    },
     "context7": {
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp@latest"],
@@ -18,6 +25,6 @@
   },
   "defaults": {
     "reasoning": true,
-    "mcpServers": ["context7", "playwright"]
+    "mcpServers": ["supabase", "context7", "playwright"]
   }
 }
