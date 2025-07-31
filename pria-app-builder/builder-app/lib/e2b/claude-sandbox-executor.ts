@@ -149,10 +149,10 @@ export class ClaudeSandboxExecutor {
       
       let executeCommand: string
       if (isFirstMessage) {
-        // First message - use streaming JSON output for real-time responses
-        const claudeFlags = `-p --output-format stream-json`
+        // First message - use streaming JSON output with verbose flag (required for stream-json)
+        const claudeFlags = `-p --output-format stream-json --verbose`
         executeCommand = `export ANTHROPIC_API_KEY="${apiKey}" && cd "${workingDir}" && ${claudeBinary} ${claudeFlags} < "${promptFilePath}"`
-        console.log('[CLAUDE SANDBOX EXECUTOR] First message - using streaming JSON output for real-time responses')
+        console.log('[CLAUDE SANDBOX EXECUTOR] First message - using streaming JSON output with verbose flag')
       } else if (restorationResult.restored && restorationResult.method === 'resume') {
         // Successfully resumed existing Claude session
         const claudeFlags = `-p --resume ${restorationResult.claudeSessionId}`
