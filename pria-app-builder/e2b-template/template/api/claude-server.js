@@ -5,6 +5,7 @@
  */
 
 const express = require('express')
+const { Server } = require('ws')
 const { query } = require('@anthropic-ai/claude-code')
 const path = require('path')
 const fs = require('fs').promises
