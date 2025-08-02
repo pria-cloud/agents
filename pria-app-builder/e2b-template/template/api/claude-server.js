@@ -6,7 +6,7 @@
 
 const express = require('express')
 const { Server } = require('ws')
-const { query } = require('@anthropic-ai/claude-code')
+const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs').promises
 
@@ -184,27 +184,64 @@ app.get('/test-claude-sdk', async (req, res) => {
     
     console.log(`[CLAUDE API] Starting query() call...`)
     
-    for await (const message of query('Hello, can you respond with just "test successful"?', {
+    // Test Claude CLI with correct flags
+    const testProcess = spawn('claude', [
+      '-p',
+      '--dangerously-skip-permissions',
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--',
+      'Hello, can you respond with just "test successful"?'
+    ], {
       cwd: '/home/user',
-      maxTurns: 1,
-      permissionMode: 'dangerously-skip-permissions'
-    })) {
-      messageCount++
-      console.log(`[CLAUDE API] Received message ${messageCount}:`, {
-        type: message.type,
-        contentLength: message.content?.length || 0,
-        hasContent: !!message.content
+      env: process.env
+    })
+    
+    let testBuffer = ''
+    
+    return new Promise((resolve, reject) => {
+      testProcess.stdout.on('data', (data) => {
+        const chunk = data.toString()
+        testBuffer += chunk
+        
+        const lines = testBuffer.split('\n')
+        testBuffer = lines.pop() || ''
+        
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const jsonData = JSON.parse(line.trim())
+              messageCount++
+              
+              console.log(`[CLAUDE API] Received test message ${messageCount}:`, {
+                type: jsonData.type,
+                contentLength: jsonData.content?.length || 0,
+                hasContent: !!jsonData.content
+              })
+              
+              messages.push({
+                type: jsonData.type,
+                content: jsonData.content,
+                contentLength: jsonData.content?.length || 0
+              })
+              
+            } catch (parseError) {
+              console.log(`[CLAUDE API] Test non-JSON line: ${line.substring(0, 100)}...`)
+            }
+          }
+        }
       })
       
-      messages.push({
-        type: message.type,
-        content: message.content,
-        contentLength: message.content?.length || 0
+      testProcess.on('close', (code) => {
+        console.log(`[CLAUDE API] Test process completed with code: ${code}`)
+        resolve()
       })
       
-      // Only process first message for test
-      if (messageCount >= 1) break
-    }
+      testProcess.on('error', (error) => {
+        console.error(`[CLAUDE API] Test process error:`, error)
+        reject(error)
+      })
+    })
     
     const duration = Date.now() - startTime
     console.log(`[CLAUDE API] SDK test completed successfully - ${messageCount} messages in ${duration}ms`)
@@ -340,60 +377,155 @@ app.post('/api/claude/stream', async (req, res) => {
     })
     
     try {
-      // Use Claude Code SDK query() function properly
-      console.log(`[CLAUDE API] Executing Claude Code SDK query() function`)
+      // Use Claude CLI with correct flags for real-time streaming
+      console.log(`[CLAUDE API] Executing Claude CLI with proper flags`)
       console.log(`[CLAUDE API] Prompt: ${prompt.substring(0, 100)}...`)
       console.log(`[CLAUDE API] Working directory: ${workingDir}`)
-      console.log(`[CLAUDE API] SDK Options:`, {
+      console.log(`[CLAUDE API] Command: claude -p --dangerously-skip-permissions --output-format stream-json --verbose`)
+      
+      // Spawn Claude CLI process with correct flags
+      const claudeProcess = spawn('claude', [
+        '-p',
+        '--dangerously-skip-permissions',
+        '--output-format', 'stream-json', 
+        '--verbose',
+        '--',
+        prompt
+      ], {
         cwd: workingDir,
-        maxTurns: options.maxTurns || 10
+        env: process.env
       })
       
-      // Execute using Claude Code SDK with proper streaming
-      for await (const message of query(prompt, {
-        cwd: workingDir,
-        maxTurns: options.maxTurns || 10,
-        // Don't set executable since we want to use the default Claude installation
-        // The SDK will handle authentication via ANTHROPIC_API_KEY environment variable
-      })) {
-        messageCount++
+      let outputBuffer = ''
+      let isCompleted = false
+      
+      // Handle real-time stdout streaming
+      claudeProcess.stdout.on('data', (data) => {
+        const chunk = data.toString()
+        outputBuffer += chunk
         
-        console.log(`[CLAUDE API] Received SDK message ${messageCount}:`, {
-          type: message.type,
-          contentLength: message.content?.length || 0,
-          hasContent: !!message.content
-        })
+        console.log(`[CLAUDE API] Received stdout chunk: ${chunk.length} chars`)
         
-        // Send real-time update to Builder App via Server-Sent Events
-        sendEvent('claude_message', {
-          messageNumber: messageCount,
-          type: message.type || 'message',
-          content: message.content || '',
-          metadata: {
-            sessionId,
-            workingDirectory: workingDir,
-            messageId: message.id || `msg_${messageCount}`,
-            timestamp: new Date().toISOString()
+        // Process stream-json lines in real-time
+        const lines = outputBuffer.split('\n')
+        outputBuffer = lines.pop() || '' // Keep incomplete line in buffer
+        
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const jsonData = JSON.parse(line.trim())
+              messageCount++
+              
+              console.log(`[CLAUDE API] Parsed JSON message ${messageCount}:`, {
+                type: jsonData.type,
+                contentLength: jsonData.content?.length || 0
+              })
+              
+              // Send real-time update to Builder App
+              sendEvent('claude_message', {
+                messageNumber: messageCount,
+                type: jsonData.type || 'message',
+                content: jsonData.content || jsonData.message || '',
+                metadata: {
+                  sessionId,
+                  workingDirectory: workingDir,
+                  messageId: jsonData.id || `msg_${messageCount}`,
+                  timestamp: new Date().toISOString(),
+                  rawLine: line.trim()
+                }
+              })
+              
+              if (jsonData.content) {
+                totalContent += jsonData.content
+              }
+              
+            } catch (parseError) {
+              console.log(`[CLAUDE API] Non-JSON line (progress): ${line.substring(0, 100)}...`)
+              
+              // Send as progress update for verbose output
+              sendEvent('progress', {
+                message: line.trim(),
+                step: messageCount,
+                sessionId,
+                timestamp: new Date().toISOString()
+              })
+            }
           }
-        })
+        }
+      })
+      
+      // Handle stderr (Claude often sends useful info to stderr)
+      claudeProcess.stderr.on('data', (data) => {
+        const chunk = data.toString()
+        console.log(`[CLAUDE API] Received stderr: ${chunk}`)
         
-        if (message.content) {
-          totalContent += message.content
+        // Send stderr as progress info
+        sendEvent('progress', {
+          message: chunk.trim(),
+          type: 'info',
+          sessionId,
+          timestamp: new Date().toISOString()
+        })
+      })
+      
+      // Handle process completion
+      claudeProcess.on('close', (code) => {
+        console.log(`[CLAUDE API] Claude CLI process exited with code: ${code}`)
+        isCompleted = true
+        
+        if (code !== 0) {
+          console.error(`[CLAUDE API] Claude CLI failed with exit code ${code}`)
+          
+          sendEvent('error', {
+            sessionId,
+            error: `Claude CLI execution failed with exit code ${code}`,
+            exitCode: code,
+            type: 'cli_error'
+          })
+        } else {
+          console.log(`[CLAUDE API] Claude CLI completed successfully`)
+          
+          sendEvent('stream_complete', {
+            sessionId,
+            totalMessages: messageCount,
+            totalContentLength: totalContent.length,
+            exitCode: code,
+            message: 'Claude CLI execution completed successfully'
+          })
         }
         
-        // Log progress for debugging
-        console.log(`[CLAUDE API] Message ${messageCount} processed, content length: ${message.content?.length || 0}`)
-      }
+        // Close the SSE connection
+        try {
+          res.end()
+        } catch (endError) {
+          console.log(`[CLAUDE API] Connection already closed`)
+        }
+      })
       
-      console.log(`[CLAUDE API] Claude Code SDK completed successfully`)
-      console.log(`[CLAUDE API] Total messages: ${messageCount}, total content: ${totalContent.length} chars`)
+      // Handle process errors
+      claudeProcess.on('error', (error) => {
+        console.error(`[CLAUDE API] Claude CLI spawn error:`, error)
+        
+        sendEvent('error', {
+          sessionId,
+          error: `Failed to start Claude CLI: ${error.message}`,
+          details: error.stack,
+          type: 'spawn_error'
+        })
+        
+        try {
+          res.end()
+        } catch (endError) {
+          console.log(`[CLAUDE API] Connection already closed`)
+        }
+      })
       
-      // Send completion event
-      sendEvent('stream_complete', {
-        sessionId,
-        totalMessages: messageCount,
-        totalContentLength: totalContent.length,
-        message: 'Claude Code SDK execution completed successfully'
+      // Handle client disconnect
+      req.on('close', () => {
+        if (!isCompleted) {
+          console.log(`[CLAUDE API] Client disconnected, terminating Claude CLI process`)
+          claudeProcess.kill('SIGTERM')
+        }
       })
     } catch (claudeError) {
       console.error(`[CLAUDE API] Claude Code SDK error:`, claudeError)
@@ -541,24 +673,68 @@ wss.on('connection', (ws) => {
           timestamp: new Date().toISOString()
         }))
         
-        // Stream Claude Code responses via WebSocket
-        for await (const message of query(prompt, {
-          cwd: path.join('/home/user', `session-${sessionId}`),
-          maxTurns: options?.maxTurns || 10,
-          permissionMode: 'dangerously-skip-permissions'
-        })) {
+        // Stream Claude CLI responses via WebSocket
+        const workingDir = path.join('/home/user', `session-${sessionId}`)
+        
+        const claudeProcess = spawn('claude', [
+          '-p',
+          '--dangerously-skip-permissions',
+          '--output-format', 'stream-json',
+          '--verbose',
+          '--',
+          prompt
+        ], {
+          cwd: workingDir,
+          env: process.env
+        })
+        
+        let outputBuffer = ''
+        
+        claudeProcess.stdout.on('data', (data) => {
+          const chunk = data.toString()
+          outputBuffer += chunk
+          
+          const lines = outputBuffer.split('\n')
+          outputBuffer = lines.pop() || ''
+          
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const jsonData = JSON.parse(line.trim())
+                
+                ws.send(JSON.stringify({
+                  type: 'claude_message',
+                  data: jsonData,
+                  timestamp: new Date().toISOString()
+                }))
+                
+              } catch (parseError) {
+                ws.send(JSON.stringify({
+                  type: 'progress',
+                  message: line.trim(),
+                  timestamp: new Date().toISOString()
+                }))
+              }
+            }
+          }
+        })
+        
+        claudeProcess.on('close', (code) => {
           ws.send(JSON.stringify({
-            type: 'claude_message',
-            data: message,
+            type: 'stream_complete',
+            sessionId,
+            exitCode: code,
             timestamp: new Date().toISOString()
           }))
-        }
+        })
         
-        ws.send(JSON.stringify({
-          type: 'stream_complete',
-          sessionId,
-          timestamp: new Date().toISOString()
-        }))
+        claudeProcess.on('error', (error) => {
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: error.message,
+            timestamp: new Date().toISOString()
+          }))
+        })
       }
     } catch (error) {
       ws.send(JSON.stringify({
