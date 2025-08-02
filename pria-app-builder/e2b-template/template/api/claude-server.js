@@ -10,6 +10,204 @@ const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs').promises
 
+// Session management storage (in production, this would be a database)
+const sessionMetadata = new Map()
+const claudeSessionIds = new Map() // sessionId -> claudeSessionId mapping
+
+// Session management helper functions
+async function isFirstClaudeMessage(sessionId, workingDir) {
+  try {
+    // Check if we have any Claude session metadata
+    if (sessionMetadata.has(sessionId)) {
+      const metadata = sessionMetadata.get(sessionId)
+      return metadata.messageCount === 0
+    }
+    
+    // Check if working directory has any conversation history
+    const files = await fs.readdir(workingDir).catch(() => [])
+    const hasConversationFiles = files.some(file => 
+      file.includes('.claude') || file.includes('conversation') || file.includes('chat')
+    )
+    
+    return !hasConversationFiles
+  } catch (error) {
+    console.log(`[CLAUDE API] Error checking first message status: ${error.message}`)
+    return true // Default to first message on error
+  }
+}
+
+async function attemptConversationRestoration(sessionId, workingDir) {
+  try {
+    console.log(`[CLAUDE API] Attempting conversation restoration for session: ${sessionId}`)
+    
+    // Strategy 1: Try Claude session resume if we have a stored session ID
+    const storedClaudeSessionId = claudeSessionIds.get(sessionId)
+    if (storedClaudeSessionId) {
+      console.log(`[CLAUDE API] Found stored Claude session ID: ${storedClaudeSessionId}`)
+      
+      // Test if the Claude session is still valid
+      const resumeValid = await testClaudeSessionResume(storedClaudeSessionId, workingDir)
+      if (resumeValid) {
+        return {
+          restored: true,
+          method: 'resume',
+          claudeSessionId: storedClaudeSessionId
+        }
+      } else {
+        console.log(`[CLAUDE API] Stored Claude session ID no longer valid`)
+        claudeSessionIds.delete(sessionId) // Clean up invalid session ID
+      }
+    }
+    
+    // Strategy 2: Try --continue in the working directory
+    const continueValid = await testClaudeContinue(workingDir)
+    if (continueValid) {
+      console.log(`[CLAUDE API] --continue option available in working directory`)
+      return {
+        restored: true,
+        method: 'continue'
+      }
+    }
+    
+    // Strategy 3: No restoration possible
+    console.log(`[CLAUDE API] No conversation restoration method available`)
+    return {
+      restored: false,
+      method: 'none'
+    }
+    
+  } catch (error) {
+    console.error(`[CLAUDE API] Error during conversation restoration: ${error.message}`)
+    return {
+      restored: false,
+      method: 'error',
+      error: error.message
+    }
+  }
+}
+
+async function testClaudeSessionResume(claudeSessionId, workingDir) {
+  try {
+    // Test if Claude session resume works by running a quick validation
+    const testProcess = spawn('claude', ['--resume', claudeSessionId, '--help'], {
+      cwd: workingDir,
+      env: process.env
+    })
+    
+    return new Promise((resolve) => {
+      let output = ''
+      
+      testProcess.stdout.on('data', (data) => {
+        output += data.toString()
+      })
+      
+      testProcess.on('close', (code) => {
+        // If help command works with resume, session is valid
+        resolve(code === 0 && !output.includes('not found') && !output.includes('invalid'))
+      })
+      
+      testProcess.on('error', () => {
+        resolve(false)
+      })
+      
+      // Timeout after 3 seconds
+      setTimeout(() => {
+        testProcess.kill()
+        resolve(false)
+      }, 3000)
+    })
+  } catch (error) {
+    return false
+  }
+}
+
+async function testClaudeContinue(workingDir) {
+  try {
+    // Check if there's a conversation that can be continued
+    const testProcess = spawn('claude', ['--continue', '--help'], {
+      cwd: workingDir,
+      env: process.env
+    })
+    
+    return new Promise((resolve) => {
+      let output = ''
+      
+      testProcess.stdout.on('data', (data) => {
+        output += data.toString()
+      })
+      
+      testProcess.on('close', (code) => {
+        // If continue option is available, we can restore
+        resolve(code === 0 && !output.includes('no conversation') && !output.includes('not found'))
+      })
+      
+      testProcess.on('error', () => {
+        resolve(false)
+      })
+      
+      // Timeout after 3 seconds
+      setTimeout(() => {
+        testProcess.kill()
+        resolve(false)
+      }, 3000)
+    })
+  } catch (error) {
+    return false
+  }
+}
+
+function extractClaudeSessionId(output) {
+  // Look for Claude session ID patterns in the output
+  const sessionIdPatterns = [
+    /session[_\s]+id[:\s]+([a-f0-9-]{36})/i,
+    /conversation[_\s]+id[:\s]+([a-f0-9-]{36})/i,
+    /"session_id"[:\s]+"([a-f0-9-]{36})"/i,
+    /"id"[:\s]+"([a-f0-9-]{36})"/i
+  ]
+  
+  for (const pattern of sessionIdPatterns) {
+    const match = output.match(pattern)
+    if (match && match[1]) {
+      return match[1]
+    }
+  }
+  
+  return null
+}
+
+function updateSessionMetadata(sessionId, data) {
+  const existing = sessionMetadata.get(sessionId) || {
+    messageCount: 0,
+    firstMessageAt: null,
+    lastMessageAt: null,
+    claudeSessionId: null
+  }
+  
+  const updated = {
+    ...existing,
+    ...data,
+    lastMessageAt: new Date().toISOString()
+  }
+  
+  if (!existing.firstMessageAt && data.messageCount === 1) {
+    updated.firstMessageAt = updated.lastMessageAt
+  }
+  
+  sessionMetadata.set(sessionId, updated)
+  
+  // Store Claude session ID mapping if provided
+  if (data.claudeSessionId) {
+    claudeSessionIds.set(sessionId, data.claudeSessionId)
+    console.log(`[CLAUDE API] Stored Claude session ID: ${data.claudeSessionId} for session: ${sessionId}`)
+    
+    // In production, this would be persisted to database
+    // For now, log the mapping for debugging
+    console.log(`[CLAUDE API] Session mapping: Builder session ${sessionId} -> Claude session ${data.claudeSessionId}`)
+  }
+  
+  return updated
+}
+
 const app = express()
 const PORT = process.env.CLAUDE_API_PORT || 8080
 
@@ -377,32 +575,54 @@ app.post('/api/claude/stream', async (req, res) => {
     })
     
     try {
-      // Use Claude CLI with correct flags for real-time streaming
-      console.log(`[CLAUDE API] Executing Claude CLI with proper flags`)
-      console.log(`[CLAUDE API] Prompt: ${prompt.substring(0, 100)}...`)
-      console.log(`[CLAUDE API] Working directory: ${workingDir}`)
-      console.log(`[CLAUDE API] Command: claude -p --dangerously-skip-permissions --output-format stream-json --verbose`)
+      // Check if this is the first message or continuing conversation
+      const isFirstMessage = await isFirstClaudeMessage(sessionId, workingDir)
       
-      // Spawn Claude CLI process with correct flags
-      const claudeProcess = spawn('claude', [
-        '-p',
-        '--dangerously-skip-permissions',
-        '--output-format', 'stream-json', 
-        '--verbose',
-        '--',
-        prompt
-      ], {
+      console.log(`[CLAUDE API] Session analysis: ${isFirstMessage ? 'FIRST MESSAGE' : 'CONTINUING CONVERSATION'}`)
+      console.log(`[CLAUDE API] Working directory: ${workingDir}`)
+      console.log(`[CLAUDE API] Prompt: ${prompt.substring(0, 100)}...`)
+      
+      let claudeArgs = ['-p', '--dangerously-skip-permissions', '--output-format', 'stream-json', '--verbose']
+      let restorationContext = null
+      
+      if (!isFirstMessage) {
+        // Attempt conversation restoration for returning users
+        restorationContext = await attemptConversationRestoration(sessionId, workingDir)
+        
+        if (restorationContext.restored) {
+          if (restorationContext.method === 'resume' && restorationContext.claudeSessionId) {
+            console.log(`[CLAUDE API] Using Claude session resume: ${restorationContext.claudeSessionId}`)
+            claudeArgs.push('--resume', restorationContext.claudeSessionId)
+          } else if (restorationContext.method === 'continue') {
+            console.log(`[CLAUDE API] Using --continue for conversation in working directory`)
+            claudeArgs.push('--continue')
+          }
+        } else {
+          console.log(`[CLAUDE API] Restoration failed, starting fresh conversation`)
+        }
+      } else {
+        console.log(`[CLAUDE API] Starting new Claude conversation`)
+      }
+      
+      claudeArgs.push('--', prompt)
+      
+      console.log(`[CLAUDE API] Executing: claude ${claudeArgs.join(' ')}`)
+      
+      // Spawn Claude CLI process with session-aware flags
+      const claudeProcess = spawn('claude', claudeArgs, {
         cwd: workingDir,
         env: process.env
       })
       
       let outputBuffer = ''
       let isCompleted = false
+      let allOutput = '' // Capture all output for session ID extraction
       
       // Handle real-time stdout streaming
       claudeProcess.stdout.on('data', (data) => {
         const chunk = data.toString()
         outputBuffer += chunk
+        allOutput += chunk // Store all output for session ID extraction
         
         console.log(`[CLAUDE API] Received stdout chunk: ${chunk.length} chars`)
         
@@ -418,8 +638,21 @@ app.post('/api/claude/stream', async (req, res) => {
               
               console.log(`[CLAUDE API] Parsed JSON message ${messageCount}:`, {
                 type: jsonData.type,
-                contentLength: jsonData.content?.length || 0
+                contentLength: jsonData.content?.length || 0,
+                hasId: !!jsonData.id
               })
+              
+              // Check for Claude session ID in the message
+              if (jsonData.id && isFirstMessage) {
+                const detectedSessionId = extractClaudeSessionId(JSON.stringify(jsonData))
+                if (detectedSessionId) {
+                  console.log(`[CLAUDE API] Detected Claude session ID: ${detectedSessionId}`)
+                  updateSessionMetadata(sessionId, {
+                    claudeSessionId: detectedSessionId,
+                    messageCount: messageCount
+                  })
+                }
+              }
               
               // Send real-time update to Builder App
               sendEvent('claude_message', {
@@ -431,7 +664,8 @@ app.post('/api/claude/stream', async (req, res) => {
                   workingDirectory: workingDir,
                   messageId: jsonData.id || `msg_${messageCount}`,
                   timestamp: new Date().toISOString(),
-                  rawLine: line.trim()
+                  rawLine: line.trim(),
+                  restorationMethod: restorationContext?.method || 'none'
                 }
               })
               
@@ -441,6 +675,18 @@ app.post('/api/claude/stream', async (req, res) => {
               
             } catch (parseError) {
               console.log(`[CLAUDE API] Non-JSON line (progress): ${line.substring(0, 100)}...`)
+              
+              // Check for session ID in non-JSON output too
+              if (isFirstMessage) {
+                const detectedSessionId = extractClaudeSessionId(line)
+                if (detectedSessionId) {
+                  console.log(`[CLAUDE API] Detected Claude session ID in verbose output: ${detectedSessionId}`)
+                  updateSessionMetadata(sessionId, {
+                    claudeSessionId: detectedSessionId,
+                    messageCount: messageCount
+                  })
+                }
+              }
               
               // Send as progress update for verbose output
               sendEvent('progress', {
@@ -473,6 +719,26 @@ app.post('/api/claude/stream', async (req, res) => {
         console.log(`[CLAUDE API] Claude CLI process exited with code: ${code}`)
         isCompleted = true
         
+        // Update session metadata with final counts
+        updateSessionMetadata(sessionId, {
+          messageCount: messageCount,
+          lastExitCode: code,
+          totalContentLength: totalContent.length
+        })
+        
+        // Extract Claude session ID from complete output if we haven't found it yet
+        if (isFirstMessage && !claudeSessionIds.has(sessionId)) {
+          const detectedSessionId = extractClaudeSessionId(allOutput)
+          if (detectedSessionId) {
+            console.log(`[CLAUDE API] Detected Claude session ID from complete output: ${detectedSessionId}`)
+            updateSessionMetadata(sessionId, {
+              claudeSessionId: detectedSessionId
+            })
+          } else {
+            console.log(`[CLAUDE API] No Claude session ID detected in output for session: ${sessionId}`)
+          }
+        }
+        
         if (code !== 0) {
           console.error(`[CLAUDE API] Claude CLI failed with exit code ${code}`)
           
@@ -485,14 +751,31 @@ app.post('/api/claude/stream', async (req, res) => {
         } else {
           console.log(`[CLAUDE API] Claude CLI completed successfully`)
           
+          // Get final session metadata for completion event
+          const sessionMeta = sessionMetadata.get(sessionId) || {}
+          const claudeSessionId = claudeSessionIds.get(sessionId)
+          
           sendEvent('stream_complete', {
             sessionId,
             totalMessages: messageCount,
             totalContentLength: totalContent.length,
             exitCode: code,
+            claudeSessionId: claudeSessionId,
+            sessionMetadata: {
+              messageCount: sessionMeta.messageCount || messageCount,
+              firstMessageAt: sessionMeta.firstMessageAt,
+              lastMessageAt: sessionMeta.lastMessageAt
+            },
             message: 'Claude CLI execution completed successfully'
           })
         }
+        
+        // Log session state for debugging
+        console.log(`[CLAUDE API] Session ${sessionId} completed:`, {
+          messageCount,
+          claudeSessionId: claudeSessionIds.get(sessionId),
+          metadata: sessionMetadata.get(sessionId)
+        })
         
         // Close the SSE connection
         try {
@@ -591,7 +874,7 @@ app.post('/api/claude/stream', async (req, res) => {
   }
 })
 
-// Session status endpoint
+// Session status endpoint with Claude session information
 app.get('/api/claude/session/:sessionId', async (req, res) => {
   const { sessionId } = req.params
   const workingDir = path.join('/home/user', `session-${sessionId}`)
@@ -600,6 +883,10 @@ app.get('/api/claude/session/:sessionId', async (req, res) => {
     const stats = await fs.stat(workingDir)
     const files = await fs.readdir(workingDir)
     
+    // Get session metadata and Claude session ID
+    const metadata = sessionMetadata.get(sessionId)
+    const claudeSessionId = claudeSessionIds.get(sessionId)
+    
     res.json({
       sessionId,
       workingDirectory: workingDir,
@@ -607,16 +894,54 @@ app.get('/api/claude/session/:sessionId', async (req, res) => {
       created: stats.birthtime,
       modified: stats.mtime,
       fileCount: files.length,
-      files: files.slice(0, 10) // First 10 files
+      files: files.slice(0, 10), // First 10 files
+      claudeSession: {
+        claudeSessionId: claudeSessionId || null,
+        metadata: metadata || null,
+        hasStoredSession: !!claudeSessionId,
+        canResume: !!claudeSessionId,
+        canContinue: files.length > 0
+      }
     })
   } catch (error) {
     res.json({
       sessionId,
       workingDirectory: workingDir,
       exists: false,
-      error: error.message
+      error: error.message,
+      claudeSession: {
+        claudeSessionId: claudeSessionIds.get(sessionId) || null,
+        metadata: sessionMetadata.get(sessionId) || null,
+        hasStoredSession: !!claudeSessionIds.get(sessionId),
+        canResume: false,
+        canContinue: false
+      }
     })
   }
+})
+
+// Debug endpoint to view all session mappings
+app.get('/api/claude/debug/sessions', (req, res) => {
+  const allSessions = {}
+  
+  // Convert Maps to plain objects for JSON response
+  for (const [sessionId, metadata] of sessionMetadata.entries()) {
+    allSessions[sessionId] = {
+      metadata,
+      claudeSessionId: claudeSessionIds.get(sessionId) || null
+    }
+  }
+  
+  res.json({
+    totalSessions: sessionMetadata.size,
+    claudeSessionMappings: claudeSessionIds.size,
+    sessions: allSessions,
+    serverInfo: {
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      timestamp: new Date().toISOString()
+    }
+  })
 })
 
 // File operations endpoint
