@@ -1,0 +1,27 @@
+{
+  "name": "claude-code-api-server",
+  "version": "1.0.0",
+  "description": "Claude Code API Server for E2B Sandbox",
+  "main": "claude-server.js",
+  "scripts": {
+    "start": "node claude-server.js",
+    "dev": "node claude-server.js",
+    "test": "node ../../test-claude-api-local.js",
+    "test:local": "node ../../test-claude-api-local.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "latest",
+    "express": "^4.18.2",
+    "ws": "^8.14.2",
+    "cors": "^2.8.5"
+  },
+  "keywords": [
+    "claude-code",
+    "api",
+    "e2b",
+    "sandbox",
+    "streaming"
+  ],
+  "author": "PRIA Platform",
+  "license": "MIT"
+}
