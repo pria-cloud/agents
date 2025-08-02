@@ -10,6 +10,9 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 ENV NPM_CONFIG_FUND=false
 ENV NPM_CONFIG_AUDIT_LEVEL=moderate
 
+# Set PATH to include npm-global and user local bins (for all processes, not just bash)
+ENV PATH="/home/user/.npm-global/bin:/home/user/.local/bin:$PATH"
+
 # Create user early to set proper ownership (sudo will be configured later)
 RUN useradd -m -s /bin/bash user
 
@@ -72,31 +75,82 @@ RUN export PATH=/home/user/.npm-global/bin:$PATH && \
     npm install -g autocannon && \
     npm install -g audit-ci || true
 
+# Install Python dependencies to user's home directory
+# This ensures they survive E2B's provisioning process
+RUN pip3 install --user --upgrade pip && \
+    pip3 install --user fastapi uvicorn[standard] python-multipart pydantic python-dotenv httpx aiofiles websockets claude-code-sdk && \
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && \
+    PYTHON_VERSION=$(python3 -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')") && \
+    echo "export PYTHONPATH=\"\$HOME/.local/lib/$PYTHON_VERSION/site-packages:\$PYTHONPATH\"" >> ~/.bashrc
+
 # Create directory structure
 RUN mkdir -p /home/user/{template,scripts,tools,logs,.claude,.config/gh}
 
 # Copy template files and scripts (these will be added during the build)
 COPY --chown=user:user template/ /home/user/template/
 COPY --chown=user:user scripts/ /home/user/scripts/
+COPY --chown=user:user .e2b/ /home/user/.e2b/
 COPY --chown=user:user CLAUDE.md /home/user/template/
 COPY --chown=user:user TARGET_APP_SPECIFICATION_TEMPLATE.md /home/user/template/
-
 # Make scripts executable
-RUN chmod +x /home/user/scripts/*.sh
+RUN chmod +x /home/user/scripts/*.sh && chmod +x /home/user/.e2b/*.sh
 
-# Set up Claude Code SDK configuration directory
-RUN mkdir -p /home/user/.claude
+# CRITICAL: Copy API server files to runtime location during build time
+# This ensures Claude API server is available immediately when sandbox starts from snapshot
+RUN if [ -d "/home/user/template/api" ]; then \
+        echo "🔧 Copying Claude API server files to runtime location..."; \
+        cp -r /home/user/template/api /home/user/api && \
+        chown -R user:user /home/user/api && \
+        echo "✅ Claude API server files copied to /home/user/api/ during build"; \
+        ls -la /home/user/api/; \
+    else \
+        echo "❌ Template API directory not found during build"; \
+        exit 1; \
+    fi
 
-# Run environment setup script
-RUN /home/user/scripts/setup-environment.sh
+# Verify Python dependencies are accessible in user directory
+RUN echo "✅ Verifying Python dependencies in user directory..." && \
+    export PATH="$HOME/.local/bin:$PATH" && \
+    PYTHON_VERSION=$(python3 -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')") && \
+    export PYTHONPATH="$HOME/.local/lib/$PYTHON_VERSION/site-packages:$PYTHONPATH" && \
+    pip3 list --user | grep -E "(fastapi|uvicorn|claude-code)" && \
+    python3 -c "import uvicorn, fastapi, claude_code_sdk; print('✅ All core imports working from user directory')"
 
-# Run sub-agents setup script  
-RUN /home/user/scripts/setup-subagents.sh
+# Switch to user and verify packages are STILL accessible
+USER user
+WORKDIR /home/user
 
-# Set up performance monitoring tools
-RUN mkdir -p /home/user/tools && \
-    curl -L -o /home/user/tools/lighthouse-cli https://github.com/GoogleChrome/lighthouse/releases/latest/download/lighthouse-cli-linux || echo "Lighthouse CLI download skipped" && \
-    chmod +x /home/user/tools/lighthouse-cli || true
+# CRITICAL: Verify Python dependencies are accessible AS USER with proper paths
+RUN echo "🔍 Testing Python packages as USER..." && \
+    export PATH="$HOME/.local/bin:$PATH" && \
+    PYTHON_VERSION=$(python3 -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')") && \
+    export PYTHONPATH="$HOME/.local/lib/$PYTHON_VERSION/site-packages:$PYTHONPATH" && \
+    python3 -c "import uvicorn, fastapi, claude_code_sdk; print('✅ Packages accessible as user')" && \
+    echo "🧪 Testing API server import as user..." && \
+    cd api && python3 -c "import claude_api_server; print('✅ API server loads as user')"
+
+# Pre-install template app dependencies to avoid runtime installation (as user)
+RUN if [ -f "template/package.json" ]; then \
+        cd template && \
+        npm install && \
+        echo "✅ Template app dependencies pre-installed"; \
+    else \
+        echo "⚠️ Template app package.json not found - skipping dependency installation"; \
+    fi
+
+# Set up Claude Code SDK configuration directory (as user)
+RUN mkdir -p .claude
+
+# Run environment setup script (as user)
+RUN ./scripts/setup-environment.sh
+
+# Run sub-agents setup script (as user)
+RUN ./scripts/setup-subagents.sh
+
+# Set up performance monitoring tools (as user)
+RUN mkdir -p tools && \
+    curl -L -o tools/lighthouse-cli https://github.com/GoogleChrome/lighthouse/releases/latest/download/lighthouse-cli-linux || echo "Lighthouse CLI download skipped" && \
+    chmod +x tools/lighthouse-cli || true
 
 # Create validation and startup scripts
 RUN echo '#!/bin/bash\n\
@@ -129,11 +183,19 @@ echo "=== PRIA Template Validation ==="\n\
 errors=0\n\
 \n\
 # Check required commands\n\
-for cmd in node npm git; do\n\
+for cmd in node npm git claude; do\n\
     if command -v $cmd >/dev/null 2>&1; then\n\
         echo "✅ $cmd available"\n\
+        if [ "$cmd" = "claude" ]; then\n\
+            version=$(claude --version 2>/dev/null || echo "version check failed")\n\
+            echo "   Claude CLI version: $version"\n\
+        fi\n\
     else\n\
         echo "❌ $cmd missing"\n\
+        if [ "$cmd" = "claude" ]; then\n\
+            echo "   PATH: $PATH"\n\
+            echo "   Checking npm-global: $(ls -la /home/user/.npm-global/bin/ 2>/dev/null || echo 'directory not found')"\n\
+        fi\n\
         errors=$((errors + 1))\n\
     fi\n\
 done\n\
@@ -186,12 +248,12 @@ fi' > /home/user/validate-template.sh && \
     chmod +x /home/user/validate-template.sh
 
 # Run template validation
-RUN /home/user/validate-template.sh
+RUN ./validate-template.sh
 
 # Create workspace directory for projects
-RUN mkdir -p /home/user/workspace
+RUN mkdir -p workspace
 
-# Set final working directory
+# Set final working directory  
 WORKDIR /home/user/workspace
 
 # Health check to ensure template is working
