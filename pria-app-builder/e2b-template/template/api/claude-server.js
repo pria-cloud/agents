@@ -91,7 +91,8 @@ async function testClaudeSessionResume(claudeSessionId, workingDir) {
     // Test if Claude session resume works by running a quick validation
     const testProcess = spawn('claude', ['--resume', claudeSessionId, '--help'], {
       cwd: workingDir,
-      env: process.env
+      env: process.env,
+      shell: true
     })
     
     return new Promise((resolve) => {
@@ -126,7 +127,8 @@ async function testClaudeContinue(workingDir) {
     // Check if there's a conversation that can be continued
     const testProcess = spawn('claude', ['--continue', '--help'], {
       cwd: workingDir,
-      env: process.env
+      env: process.env,
+      shell: true
     })
     
     return new Promise((resolve) => {
@@ -245,13 +247,14 @@ app.get('/test-claude-cli-direct', async (req, res) => {
   console.log(`[CLAUDE API] Testing Claude Code CLI directly`)
   console.log(`[CLAUDE API] PATH: ${process.env.PATH}`)
   console.log(`[CLAUDE API] ANTHROPIC_API_KEY present: ${!!process.env.ANTHROPIC_API_KEY}`)
-  console.log(`[CLAUDE API] Working directory: /home/user`)
+  console.log(`[CLAUDE API] Working directory: ${process.cwd()}`)
   
   try {
     // First check if claude command is available
     const claudeVersion = spawn('claude', ['--version'], {
       env: process.env,
-      cwd: '/home/user'
+      cwd: process.cwd(),
+      shell: true // Important for Windows compatibility
     })
     
     let versionOutput = ''
@@ -274,7 +277,8 @@ app.get('/test-claude-cli-direct', async (req, res) => {
         // Check project status first
         const claudeStatus = spawn('claude', ['-p', '--status'], {
           env: process.env,
-          cwd: '/home/user'
+          cwd: process.cwd(),
+          shell: true
         })
         
         let statusOutput = ''
@@ -296,7 +300,8 @@ app.get('/test-claude-cli-direct', async (req, res) => {
           // Now test a simple query with -p flag
           const claudeQuery = spawn('claude', ['-p', '--', 'Hello, respond with just "CLI test successful"'], {
             env: process.env,
-            cwd: '/home/user'
+            cwd: process.cwd(),
+            shell: true
           })
           
           let queryOutput = ''
@@ -391,8 +396,9 @@ app.get('/test-claude-sdk', async (req, res) => {
       '--',
       'Hello, can you respond with just "test successful"?'
     ], {
-      cwd: '/home/user',
-      env: process.env
+      cwd: process.cwd(),
+      env: process.env,
+      shell: true
     })
     
     let testBuffer = ''
@@ -519,15 +525,21 @@ app.post('/api/claude/stream', async (req, res) => {
   console.log(`[CLAUDE API] ANTHROPIC_API_KEY length: ${process.env.ANTHROPIC_API_KEY ? process.env.ANTHROPIC_API_KEY.length : 0}`)
   console.log(`[CLAUDE API] ANTHROPIC_API_KEY starts with sk-ant-: ${process.env.ANTHROPIC_API_KEY ? process.env.ANTHROPIC_API_KEY.startsWith('sk-ant-') : false}`)
   
-  // Check if API key is available before proceeding
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error(`[CLAUDE API] ERROR: ANTHROPIC_API_KEY environment variable not found`)
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' })
-  }
+  // Check if API key is available (skip in Claude Code environment)
+  const isClaudeCodeEnvironment = process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT
   
-  if (!process.env.ANTHROPIC_API_KEY.startsWith('sk-ant-')) {
-    console.error(`[CLAUDE API] ERROR: ANTHROPIC_API_KEY does not start with sk-ant-`)
-    return res.status(500).json({ error: 'Invalid ANTHROPIC_API_KEY format' })
+  if (!isClaudeCodeEnvironment) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.error(`[CLAUDE API] ERROR: ANTHROPIC_API_KEY environment variable not found`)
+      return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' })
+    }
+    
+    if (!process.env.ANTHROPIC_API_KEY.startsWith('sk-ant-')) {
+      console.error(`[CLAUDE API] ERROR: ANTHROPIC_API_KEY does not start with sk-ant-`)
+      return res.status(500).json({ error: 'Invalid ANTHROPIC_API_KEY format' })
+    }
+  } else {
+    console.log(`[CLAUDE API] Running in Claude Code environment - skipping API key validation`)
   }
 
   // Set up Server-Sent Events
@@ -545,8 +557,13 @@ app.post('/api/claude/stream', async (req, res) => {
   }
 
   try {
-    // Set working directory to session-specific path
-    const workingDir = path.join('/home/user', `session-${sessionId}`)
+    // Set working directory to template app location (or temp for testing)
+    // In E2B: /home/user/template (where the template app is located)
+    // For testing: temp directory for this session
+    const isE2BEnvironment = process.env.E2B_SANDBOX_ID || process.cwd().includes('/home/user')
+    const workingDir = isE2BEnvironment 
+      ? '/home/user/template'
+      : path.join(process.cwd(), '..', '..', 'temp-sessions', `session-${sessionId}`)
     
     // Ensure working directory exists
     await fs.mkdir(workingDir, { recursive: true })
@@ -611,7 +628,8 @@ app.post('/api/claude/stream', async (req, res) => {
       // Spawn Claude CLI process with session-aware flags
       const claudeProcess = spawn('claude', claudeArgs, {
         cwd: workingDir,
-        env: process.env
+        env: process.env,
+        shell: true
       })
       
       let outputBuffer = ''
@@ -877,7 +895,10 @@ app.post('/api/claude/stream', async (req, res) => {
 // Session status endpoint with Claude session information
 app.get('/api/claude/session/:sessionId', async (req, res) => {
   const { sessionId } = req.params
-  const workingDir = path.join('/home/user', `session-${sessionId}`)
+  const isE2BEnvironment = process.env.E2B_SANDBOX_ID || process.cwd().includes('/home/user')
+  const workingDir = isE2BEnvironment 
+    ? '/home/user/template'
+    : path.join(process.cwd(), '..', '..', 'temp-sessions', `session-${sessionId}`)
   
   try {
     const stats = await fs.stat(workingDir)
@@ -947,7 +968,10 @@ app.get('/api/claude/debug/sessions', (req, res) => {
 // File operations endpoint
 app.get('/api/claude/session/:sessionId/files', async (req, res) => {
   const { sessionId } = req.params
-  const workingDir = path.join('/home/user', `session-${sessionId}`)
+  const isE2BEnvironment = process.env.E2B_SANDBOX_ID || process.cwd().includes('/home/user')
+  const workingDir = isE2BEnvironment 
+    ? '/home/user/template'
+    : path.join(process.cwd(), '..', '..', 'temp-sessions', `session-${sessionId}`)
   
   try {
     const files = await fs.readdir(workingDir, { withFileTypes: true })
@@ -999,7 +1023,10 @@ wss.on('connection', (ws) => {
         }))
         
         // Stream Claude CLI responses via WebSocket
-        const workingDir = path.join('/home/user', `session-${sessionId}`)
+        const isE2BEnvironment = process.env.E2B_SANDBOX_ID || process.cwd().includes('/home/user')
+        const workingDir = isE2BEnvironment 
+          ? '/home/user/template'
+          : path.join(process.cwd(), '..', '..', 'temp-sessions', `session-${sessionId}`)
         
         const claudeProcess = spawn('claude', [
           '-p',
@@ -1010,7 +1037,8 @@ wss.on('connection', (ws) => {
           prompt
         ], {
           cwd: workingDir,
-          env: process.env
+          env: process.env,
+          shell: true
         })
         
         let outputBuffer = ''
