@@ -29,11 +29,11 @@ COPY modified-claudecodeui/ /home/user/claudecodeui/
 WORKDIR /home/user/claudecodeui
 RUN npm install
 
-# Create .env file with default configuration and API key
+# Create .env file with default configuration
 RUN echo "PORT=3008" > .env && \
     echo "VITE_PORT=3009" >> .env && \
     echo "NODE_ENV=production" >> .env && \
-    echo "ANTHROPIC_API_KEY=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" >> .env
+    echo "ANTHROPIC_API_KEY=\${ANTHROPIC_API_KEY}" >> .env
 
 # Create enhanced vite.config.js for iframe websocket support
 RUN cat > vite.config.js << 'EOF'
@@ -486,16 +486,18 @@ ENV PORT=3008
 ENV VITE_PORT=3009
 ENV NODE_ENV=production
 ENV SKIP_AUTH=true
-# Set Anthropic API key as environment variable for all processes
-ENV ANTHROPIC_API_KEY=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
+# Anthropic API key will be provided at runtime via E2B environment variables
+# It will be available as $ANTHROPIC_API_KEY environment variable
 
-# GitHub token can still be provided at build time
+# Build-time arguments for API keys (can be overridden at runtime)
+ARG ANTHROPIC_API_KEY=""
 ARG GITHUB_TOKEN=""
 ARG SUPABASE_URL=""
 ARG SUPABASE_ANON_KEY=""
 ARG SUPABASE_SERVICE_ROLE_KEY=""
 
-# Set environment variables (Anthropic API key is already set above)
+# Set environment variables from build args (can be overridden at runtime)
+ENV ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 ENV GITHUB_TOKEN=$GITHUB_TOKEN
 ENV SUPABASE_URL=$SUPABASE_URL
 ENV SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
@@ -696,8 +698,6 @@ RUN chmod +x /home/user/health-check.sh
 
 # Create all user directories, configs, and wrapper files as root first
 RUN mkdir -p /home/user/.config/claude /home/user/.claude/projects /home/user/bin && \
-    echo '{"anthropicApiKey": "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"}' > /home/user/.config/claude/config.json && \
-    echo "export ANTHROPIC_API_KEY='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'" >> /home/user/.bashrc && \
     echo "export PATH='/usr/local/lib/npm-global/bin:/usr/local/bin:/home/user/.npm-global/bin:/home/user/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH'" >> /home/user/.bashrc && \
     # Create Claude command wrapper that ensures proper user execution
     echo '#!/bin/bash' > /home/user/claude-wrapper && \
