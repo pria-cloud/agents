@@ -25,15 +25,29 @@ WORKDIR /home/user
 # Copy pre-modified claudecodeui instead of cloning and patching
 COPY modified-claudecodeui/ /home/user/claudecodeui/
 
+# Copy local .env.local file to claudecodeui directory for API key access
+COPY .env.local /home/user/claudecodeui/
+
 # Install dependencies
 WORKDIR /home/user/claudecodeui
 RUN npm install
 
-# Create .env file with default configuration
+# Create .env file with configuration, reading API key from .env.local if available
 RUN echo "PORT=3008" > .env && \
     echo "VITE_PORT=3009" >> .env && \
     echo "NODE_ENV=production" >> .env && \
-    echo "ANTHROPIC_API_KEY=\${ANTHROPIC_API_KEY}" >> .env
+    echo "DEBUG: Checking for .env.local file..." && \
+    ls -la . && \
+    if [ -f ".env.local" ]; then \
+        echo "✅ Found .env.local, reading ANTHROPIC_API_KEY"; \
+        cat .env.local && \
+        grep "^ANTHROPIC_API_KEY=" .env.local >> .env || echo "ANTHROPIC_API_KEY=" >> .env; \
+    else \
+        echo "❌ No .env.local found, API key will need to be provided at runtime"; \
+        echo "ANTHROPIC_API_KEY=" >> .env; \
+    fi && \
+    echo "Final .env file contents:" && \
+    cat .env
 
 # Create enhanced vite.config.js for iframe websocket support
 RUN cat > vite.config.js << 'EOF'
@@ -489,19 +503,10 @@ ENV SKIP_AUTH=true
 # Anthropic API key will be provided at runtime via E2B environment variables
 # It will be available as $ANTHROPIC_API_KEY environment variable
 
-# Build-time arguments for API keys (can be overridden at runtime)
-ARG ANTHROPIC_API_KEY=""
-ARG GITHUB_TOKEN=""
-ARG SUPABASE_URL=""
-ARG SUPABASE_ANON_KEY=""
-ARG SUPABASE_SERVICE_ROLE_KEY=""
+# .env.local is already copied to claudecodeui directory above
 
-# Set environment variables from build args (can be overridden at runtime)
-ENV ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
-ENV GITHUB_TOKEN=$GITHUB_TOKEN
-ENV SUPABASE_URL=$SUPABASE_URL
-ENV SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
-ENV SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
+# Environment variables will be read from .env.local during build
+# These can still be overridden at runtime via E2B environment variables
 
 # Make startup scripts executable
 RUN chmod +x /home/user/scripts/*.sh

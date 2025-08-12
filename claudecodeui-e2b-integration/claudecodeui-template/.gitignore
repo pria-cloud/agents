@@ -1,0 +1,18 @@
+# Local environment files with API keys
+.env.local
+.env.build
+build.env
+
+# E2B build artifacts
+template_build_log.md
+.e2b/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
