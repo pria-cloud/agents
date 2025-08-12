@@ -1,0 +1,8 @@
+# E2B Template Configuration
+dockerfile = "e2b.Dockerfile"
+
+# Start command - runs when sandbox is created
+start_cmd = "cd /home/user/claudecodeui && npm run dev"
+
+# Ready command - waits for the service to be ready
+ready_cmd = "curl -f http://localhost:3009 || exit 1"

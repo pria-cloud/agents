@@ -1,0 +1,18 @@
+# This is a config for E2B sandbox template.
+# You can use template ID (9e61dubo40hx58pnzfoc) or template name (claude-code-ui-launcher) to create a sandbox:
+
+# Python SDK
+# from e2b import Sandbox, AsyncSandbox
+# sandbox = Sandbox("claude-code-ui-launcher") # Sync sandbox
+# sandbox = await AsyncSandbox.create("claude-code-ui-launcher") # Async sandbox
+
+# JS SDK
+# import { Sandbox } from 'e2b'
+# const sandbox = await Sandbox.create('claude-code-ui-launcher')
+
+team_id = "d9ae965a-2a35-4a01-bc6e-6ff76faaa12c"
+ready_cmd = "/home/user/scripts/basic-ready.sh"
+start_cmd = "/home/user/start-all-services.sh"
+dockerfile = "e2b.Dockerfile"
+template_name = "claude-code-ui-launcher"
+template_id = "9e61dubo40hx58pnzfoc"

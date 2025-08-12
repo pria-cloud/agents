@@ -1,0 +1,215 @@
+/**
+ * PRIA Branding CSS
+ * CSS-based text replacement for key UI elements
+ * This provides instant branding without JavaScript delay
+ */
+
+/* Hide original "Claude" text and show "PRIA" for known elements */
+
+/* Main title/header replacements */
+.claude-logo::after,
+.claude-title::after,
+h1:contains("Claude")::after,
+.header-title:contains("Claude")::after {
+  content: "PRIA Code UI";
+}
+
+/* Hide original text for replaced elements */
+.claude-logo,
+.claude-title,
+h1:contains("Claude"),
+.header-title:contains("Claude") {
+  font-size: 0 !important;
+}
+
+/* Status badge replacements */
+.claude-status::before {
+  content: "PRIA Status: ";
+}
+
+/* Button text replacements */
+button:contains("Claude")::after {
+  content: attr(data-pria-label);
+}
+
+/* Use CSS variables for easy customization */
+:root {
+  --brand-name: "PRIA";
+  --brand-full: "PRIA Code UI";
+  --brand-color: #6366f1; /* Indigo as PRIA brand color */
+  --pria-violet: #7c3aed; /* violet-600 for logo */
+}
+
+/* PRIA logo styling */
+.pria-logo {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+}
+
+/* Make sure PRIA logos fit in avatar containers */
+.avatar .pria-logo,
+.bot-avatar .pria-logo,
+.assistant-avatar .pria-logo,
+.message-avatar .pria-logo,
+.chat-avatar .pria-logo {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 48px !important;
+  max-height: 48px !important;
+}
+
+/* Specific styling for common chat avatar containers */
+[class*="message"] .pria-logo,
+[class*="chat"] .pria-logo {
+  border-radius: 6px;
+  background-color: rgba(124, 58, 237, 0.1);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+/* Override brand colors */
+.bg-blue-500 {
+  background-color: var(--brand-color) !important;
+}
+
+.text-blue-600 {
+  color: var(--brand-color) !important;
+}
+
+/* Specific component overrides */
+/* Chat interface */
+.chat-header::after {
+  content: var(--brand-full);
+}
+
+/* Terminal header */
+.terminal-header::after {
+  content: var(--brand-name) " Terminal";
+}
+
+/* File tree header */
+.file-tree-header::after {
+  content: var(--brand-name) " Projects";
+}
+
+/* Loading messages */
+.loading-message:contains("Claude")::after {
+  content: "Initializing " var(--brand-name) "...";
+  font-size: inherit !important;
+}
+
+.loading-message:contains("Claude") {
+  font-size: 0;
+}
+
+/* Error messages - preserve but rebrand */
+.error-message:contains("Claude")::after {
+  content: var(--brand-name) " Error";
+}
+
+/* Tooltips */
+[title*="Claude"] {
+  position: relative;
+}
+
+[title*="Claude"]::after {
+  content: attr(title);
+  content: var(--brand-full);
+  position: absolute;
+  background: #333;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+[title*="Claude"]:hover::after {
+  opacity: 1;
+}
+
+/* Placeholder text in inputs */
+input[placeholder*="Claude"]::placeholder {
+  font-size: 0;
+}
+
+input[placeholder*="Claude"]::before {
+  content: "Search " var(--brand-name) "...";
+}
+
+/* Chat input placeholder - common patterns */
+textarea[placeholder*="Claude"]::placeholder,
+input[placeholder*="Ask Claude"]::placeholder {
+  font-size: 0;
+}
+
+/* Default chat message placeholder */
+[placeholder*="Ask Claude to change your code"]::placeholder {
+  font-size: 0;
+  content: "Ask PRIA to build or change your application";
+}
+
+/* Alternative selectors for chat inputs */
+.chat-input::placeholder,
+.message-input::placeholder,
+[class*="chat"] input::placeholder,
+[class*="message"] textarea::placeholder {
+  color: #6b7280; /* gray-500 */
+}
+
+/* Select dropdowns */
+option:contains("Claude") {
+  font-size: 0;
+}
+
+option:contains("Claude")::after {
+  content: var(--brand-name);
+  font-size: 14px;
+}
+
+/* Modal titles */
+.modal-title:contains("Claude")::after {
+  content: var(--brand-full) " Settings";
+}
+
+.modal-title:contains("Claude") {
+  font-size: 0;
+}
+
+/* Navigation items */
+.nav-item:contains("Claude")::after {
+  content: var(--brand-name);
+}
+
+.nav-item:contains("Claude") {
+  font-size: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Footer text */
+footer:contains("Claude")::after {
+  content: "Powered by " var(--brand-name);
+}
+
+/* Animation for smooth transition */
+* {
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+/* Debug mode - uncomment to see what's being replaced */
+/*
+[class*="claude"],
+[id*="claude"],
+*:contains("Claude") {
+  border: 2px solid red !important;
+}
+*/
