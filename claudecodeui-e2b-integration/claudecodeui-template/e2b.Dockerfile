@@ -536,6 +536,22 @@ if [ -f "/home/user/scripts/post-user-setup.sh" ]; then
     /bin/bash /home/user/scripts/post-user-setup.sh
 fi
 
+# Load environment variables from .env first
+cd /home/user/claudecodeui
+if [ -f ".env" ]; then
+    echo -e "${GREEN}✅ Loading environment variables from .env${NC}"
+    set -a  # Export all variables
+    source .env
+    set +a  # Stop exporting
+    if [ -n "$ANTHROPIC_API_KEY" ]; then
+        export ANTHROPIC_API_KEY
+        echo -e "${GREEN}✅ ANTHROPIC_API_KEY loaded (${#ANTHROPIC_API_KEY} chars)${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️ .env file not found in /home/user/claudecodeui${NC}"
+fi
+cd /home/user
+
 # Check required environment variables
 if [ -z "$ANTHROPIC_API_KEY" ]; then
     echo -e "${RED}⚠️  ANTHROPIC_API_KEY not set${NC}"
@@ -574,6 +590,8 @@ echo -e "${BLUE}ℹ️  Claude project initialization deferred to runtime (via I
 # Start claudecodeui services in production mode
 echo -e "${BLUE}🚀 Starting claudecodeui services (production mode)...${NC}"
 cd /home/user/claudecodeui
+
+# Environment variables already loaded above
 
 # Start API server
 npm run server > /tmp/claudecodeui-api.log 2>&1 &

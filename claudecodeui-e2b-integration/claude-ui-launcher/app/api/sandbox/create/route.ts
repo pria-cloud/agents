@@ -34,6 +34,11 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`Creating E2B sandbox for session: ${sessionId} using template: ${templateId}`)
+    
+    // Log API key status for debugging
+    const launcherApiKey = process.env.ANTHROPIC_API_KEY
+    console.log(`Launcher ANTHROPIC_API_KEY: ${launcherApiKey ? `PRESENT (${launcherApiKey.length} chars)` : 'MISSING'}`)
+    
     const startTime = Date.now()
 
     // Create E2B sandbox with extended timeout and better error handling
@@ -42,12 +47,13 @@ export async function POST(request: NextRequest) {
         apiKey: e2bApiKey,
         timeoutMs: 1200000, // 20 minutes (20 * 60 * 1000)
         envs: {
-          // Pass API keys as environment variables (required for Claude CLI)
-          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-          GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
+          // Only pass API keys if they exist in launcher environment
+          // Template has API key baked in, don't override with empty values
+          ...(process.env.ANTHROPIC_API_KEY && { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }),
+          ...(process.env.GITHUB_TOKEN && { GITHUB_TOKEN: process.env.GITHUB_TOKEN }),
           GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY || 'https://github.com/pria-cloud/workspaces',
-          SUPABASE_URL: process.env.SUPABASE_URL || '',
-          SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY || '',
+          ...(process.env.SUPABASE_URL && { SUPABASE_URL: process.env.SUPABASE_URL }),
+          ...(process.env.SUPABASE_ANON_KEY && { SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY }),
           SESSION_ID: sessionId,
           PROJECT_NAME: 'baseline-project'
         },

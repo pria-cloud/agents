@@ -26,6 +26,8 @@ fi
 if [ -n "$API_KEY" ] && [ "$API_KEY" != "" ]; then
     echo "{\"anthropicApiKey\": \"$API_KEY\"}" > /home/user/.config/claude/config.json
     echo "✅ Claude config created with API key (${#API_KEY} chars)"
+    # CRITICAL: Export the API key so it's immediately available to the startup script
+    export ANTHROPIC_API_KEY="$API_KEY"
 else
     echo '{}' > /home/user/.config/claude/config.json
     echo "⚠️ No ANTHROPIC_API_KEY found, created empty config"
